@@ -390,8 +390,6 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   .hide-sm{display:none}
 }
 /* developer modal + toast */
-.dev-link{border:0;background:none;color:var(--faint);font:500 11px var(--f-mono);letter-spacing:.14em;cursor:pointer;padding:4px 6px;border-radius:6px;opacity:.6}
-.dev-link:hover{opacity:1;color:var(--muted)}
 .modal{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .modal-card{width:min(400px,100%);padding:26px;border-radius:26px;background:rgba(16,18,30,.92);display:flex;flex-direction:column;gap:14px}
 .modal-card h3{font-size:26px}
@@ -715,7 +713,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     <div class="ctas" style="justify-content:center;margin:0"><a class="btn primary" href="#pricing">See plans <svg><use href="#arrow"/></svg></a><a class="btn" href="#app">Open the editor</a></div>
   </div>
 </main>
-<footer><span>© 2026 Kerf AI</span><span class="foot-links"><a href="/terms" target="_blank" rel="noopener">Terms of Service</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span><span class="mono">VIDEO · PHOTO · CAPTIONS · MOTION</span><button class="dev-link" type="button" data-dev-open aria-label="Developer mode">DEV</button></footer>
+<footer><span>© 2026 Kerf AI</span><span class="foot-links"><a href="/terms" target="_blank" rel="noopener">Terms of Service</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span><span class="mono">VIDEO · PHOTO · CAPTIONS · MOTION</span></footer>
 </div>
 
 <!-- ================= EDITOR (#app) ================= -->
@@ -747,7 +745,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         </button>
         <span class="ed-title" id="edTitle">New edit</span>
         <div class="r">
-          <span class="dev-badge" id="devBadge" hidden>DEV MODE</span>
+          <span class="dev-badge" id="devBadge" hidden>ADMIN</span>
           <a class="pill-btn hide-sm" href="#pricing" id="upBtn">Upgrade</a>
           <a class="ico" href="#top" aria-label="Back to site" title="Back to site"><svg viewBox="0 0 20 20"><path d="M12 5l-5 5 5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
         </div>
@@ -769,7 +767,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
           <div class="lock-card glass" id="lockCard" hidden>
             <span class="ic"><svg><use href="#lockic"/></svg></span>
             <div><b id="lockTitle">Sign in to start editing</b><span id="lockSub">Your message and files stay here.</span></div>
-            <div class="acts"><button class="btn primary" type="button" id="lockPrimary">Sign in</button><button class="btn" type="button" data-dev-open>Developer</button></div>
+            <div class="acts"><button class="btn primary" type="button" id="lockPrimary">Sign in</button></div>
           </div>
           <form class="cbox" id="cbox" autocomplete="off">
             <div class="att-row" id="attRow"></div>
@@ -841,17 +839,6 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   </div>
 </div>
 
-<!-- developer mode -->
-<div class="modal" id="devModal" hidden>
-  <form class="modal-card glass" id="devForm" autocomplete="off">
-    <h3>Developer mode</h3>
-    <p>Enter the developer password to use the editor without a plan.</p>
-    <label for="devPass" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Password</label>
-    <input id="devPass" type="password" inputmode="numeric" maxlength="12" placeholder="••••">
-    <div class="msg-err" id="devErr" role="alert"></div>
-    <div class="acts"><button class="btn" type="button" id="devCancel">Cancel</button><button class="btn primary" type="submit">Unlock</button></div>
-  </form>
-</div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -1050,9 +1037,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 
   /* ---------- editor ---------- */
   let pending = '';
-  const DEV_PASS = '1809'; // client-side only: anyone who reads the page source can see it
-  let dev = false;
-  try{ dev = localStorage.getItem('kerf-dev') === '1'; }catch(e){}
+  try{ localStorage.removeItem('kerf-dev'); }catch(e){} // clear the old developer-mode flag from earlier versions
   const ed = $('ed'), edMain = $('edMain'), msgsEl = $('msgs'), scrollEl = $('edScroll');
   const msgBox = $('msg'), sendBtn = $('sendBtn'), attRow = $('attRow');
   const isSmall = () => matchMedia('(max-width:860px)').matches;
@@ -1093,7 +1078,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     else { const c = ed.classList.toggle('collapsed'); $('sideToggle').setAttribute('aria-expanded', !c); }
   });
   $('scrim').addEventListener('click', ()=>setDrawer(false));
-  addEventListener('keydown', e=>{ if(e.key==='Escape'){ setDrawer(false); closeOpt(); closeDev(); } });
+  addEventListener('keydown', e=>{ if(e.key==='Escape'){ setDrawer(false); closeOpt(); } });
 
   /* text formatting for replies: paragraphs, bullets, bold */
   function fmt(t){
@@ -1164,13 +1149,12 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 
   /* account state: signed-in user, developer password or neither */
   let user = null, profile = null;
-  const canUse = () => dev || !!profile?.is_admin;
+  const canUse = () => !!profile?.is_admin; // admin accounts are marked in the database, never in this code
   function applyDev(){ applyAccount(); }
   function applyAccount(){
     const admin = !!profile?.is_admin;
     $('devBadge').hidden = !canUse();
-    $('devBadge').textContent = admin ? 'ADMIN' : 'DEV MODE';
-    $('upBtn').hidden = canUse();
+        $('upBtn').hidden = canUse();
     const av = $('acctAv'), b = $('acctBtn');
     if(user){
       const name = profile?.full_name || user.email || 'Your account';
@@ -1179,11 +1163,6 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       if(profile?.avatar_url){ av.innerHTML = ''; const im = document.createElement('img'); im.src = profile.avatar_url; im.alt = ''; av.appendChild(im); }
       else av.textContent = name.trim().charAt(0).toUpperCase();
       b.textContent = 'Sign out'; b.className = 'btn';
-    } else if(dev){
-      $('acctPlan').textContent = 'Developer mode';
-      $('acctCred').textContent = 'UNLIMITED · NO PLAN NEEDED';
-      av.textContent = 'D';
-      b.textContent = 'Turn off developer mode'; b.className = 'btn';
     } else {
       $('acctPlan').textContent = 'Not signed in';
       $('acctCred').textContent = 'FREE PREVIEW';
@@ -1196,7 +1175,6 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   }
   $('acctBtn').addEventListener('click', async ()=>{
     if(user){ await signOut(); return; }
-    if(dev){ dev = false; try{ localStorage.removeItem('kerf-dev'); }catch(err){} applyAccount(); toast('Developer mode is off'); return; }
     openAuth();
   });
   $('navAuth').addEventListener('click', ()=>{ if(user) location.hash = 'app'; else openAuth(); });
@@ -1546,22 +1524,6 @@ One edits entry per photo, same order. Keep it natural unless they ask for somet
       }, 0);
     });
   }
-
-  /* ---------- developer mode unlock ---------- */
-  const devModal = $('devModal');
-  function openDev(){ devModal.hidden = false; $('devErr').textContent = ''; $('devPass').value = ''; setTimeout(()=>$('devPass').focus(), 30); }
-  function closeDev(){ devModal.hidden = true; }
-  document.addEventListener('click', e=>{ if(e.target.closest('[data-dev-open]')) openDev(); });
-  $('devCancel').addEventListener('click', closeDev);
-  devModal.addEventListener('click', e=>{ if(e.target === devModal) closeDev(); });
-  $('devForm').addEventListener('submit', e=>{
-    e.preventDefault();
-    if($('devPass').value.trim() !== DEV_PASS){ $('devErr').textContent = 'Wrong password. Try again.'; $('devPass').select(); return; }
-    dev = true;
-    try{ localStorage.setItem('kerf-dev','1'); }catch(err){}
-    closeDev(); applyDev(); toast('Developer mode is on');
-    if(location.hash !== '#app') location.hash = 'app'; else updateSend();
-  });
 
   let toastT;
   function toast(t){ const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(()=>{ el.hidden = true; }, 2400); }
