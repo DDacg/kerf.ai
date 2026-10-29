@@ -1021,8 +1021,15 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   /* Stripe checkout: paste each payment link URL here once it exists in Stripe.
      The site adds the signed-in user's ID so the payment server knows whose account gets the credits. */
   const PAY = {
-    starter_month:'', starter_year:'', creator_month:'', creator_year:'', studio_month:'', studio_year:'',
-    pack_100:'', pack_300:'', pack_1000:''
+    starter_month:'https://buy.stripe.com/00w7sL5sx7cKg8UbNCgUM09',
+    starter_year:'https://buy.stripe.com/bJe6oH5sx40ybSE2d2gUM0a',
+    creator_month:'https://buy.stripe.com/cNi5kD4ot2Wu4qcg3SgUM0b',
+    creator_year:'https://buy.stripe.com/5kQ9ATdZ39kScWI6tigUM0c',
+    studio_month:'https://buy.stripe.com/9B6bJ12glfJg7Co18YgUM0d',
+    studio_year:'https://buy.stripe.com/6oU00j6wBaoWe0MbNCgUM0e',
+    pack_100:'https://buy.stripe.com/dRm9AT8EJgNk7Co5pegUM0f',
+    pack_300:'https://buy.stripe.com/28EaEXaMRgNkf4Q9FugUM0g',
+    pack_1000:'https://buy.stripe.com/bJefZh1chcx45ugbNCgUM0h'
   };
   document.querySelectorAll('[data-plan],[data-pack]').forEach(b=>b.addEventListener('click', ()=>{
     const key = b.dataset.plan ? `${b.dataset.plan.toLowerCase()}_${yearly ? 'year' : 'month'}` : `pack_${b.dataset.pack}`;
