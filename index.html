@@ -787,22 +787,24 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
             <div class="opt-pop glass" id="optPop" hidden>
               <span class="b-label">Add to this edit</span>
               <div class="checks" id="optChecks">
-                <label class="check"><input type="checkbox" value="cut pauses"><span>Cut pauses</span></label>
+                <label class="check"><input type="checkbox" value="cut the pauses"><span>Cut pauses</span></label>
                 <label class="check"><input type="checkbox" value="glassy captions"><span>Glassy captions</span></label>
                 <label class="check"><input type="checkbox" value="bold word-by-word captions"><span>Bold captions</span></label>
+                <label class="check"><input type="checkbox" value="one word pop captions"><span>One-word captions</span></label>
+                <label class="check"><input type="checkbox" value="highlight box captions"><span>Highlight captions</span></label>
+                <label class="check"><input type="checkbox" value="elegant serif captions"><span>Elegant captions</span></label>
                 <label class="check"><input type="checkbox" value="punch-in zooms"><span>Zooms</span></label>
-                <label class="check"><input type="checkbox" value="face tracking"><span>Face tracking</span></label>
-                <label class="check"><input type="checkbox" value="light sound effects"><span>Sound effects</span></label>
-                <label class="check"><input type="checkbox" value="a color grade"><span>Color grade</span></label>
-                <label class="check"><input type="checkbox" value="crop for Instagram (4:5)"><span>Crop 4:5</span></label>
-                <label class="check"><input type="checkbox" value="best practices for this content"><span>Best practices</span></label>
+                <label class="check"><input type="checkbox" value="vertical 9:16"><span>Vertical 9:16</span></label>
+                <label class="check"><input type="checkbox" value="cinematic color grade"><span>Cinematic color</span></label>
+                <label class="check"><input type="checkbox" value="crop 4:5 for Instagram"><span>Crop 4:5</span></label>
               </div>
             </div>
           </form>
           <input type="file" id="fileIn" accept="image/*,video/*" multiple hidden>
           <div class="sugg" id="sugg">
             <button type="button" data-q="Cut the pauses, add glassy captions and zoom in on the key lines.">Glassy captions + cuts</button>
-            <button type="button" data-q="Turn my horizontal video into a vertical Short that follows the speaker.">Horizontal to Short</button>
+            <button type="button" data-q="Join these clips in order, cut the pauses and add bold yellow captions.">Join clips + bold captions</button>
+            <button type="button" data-q="Make it vertical 9:16 with one-word captions and a cinematic look.">Vertical + one-word captions</button>
             <button type="button" data-q="Make these photos brighter and warmer, and crop them for Instagram.">Brighter, warmer photos</button>
             <button type="button" data-q="Make this photo black and white with a soft vignette.">Black and white photo</button>
           </div>
@@ -1247,11 +1249,12 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 
   /* ---------- the editor engine ---------- */
   // The AI server (kerf-chat) reads the request and returns a reply plus an edit plan.
-  // Videos and photos are then edited right here in the browser, so files never leave the customer's computer.
+  // Videos and photos are edited right here in the browser, so files never leave the customer's computer.
   let busy = false;
   const getDownloads = () => (window.claude?.use && window.self !== window.top ? window.claude.use('downloads') : Promise.resolve(null));
   let lastRefresh = 0;
-  const refreshSoon = (chat) => { const n = Date.now(); if(n - lastRefresh > 250 && current === chat){ lastRefresh = n; refreshLast(); } };
+  const refreshSoon = (chat) => { const n = Date.now(); if(n - lastRefresh > 200 && current === chat){ lastRefresh = n; refreshLast(); } };
+  const FPS = 30;
 
   async function askKerf(turns, images){
     if(!sb || !user) return null;
@@ -1268,15 +1271,118 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     }catch(e){ return null; }
   }
 
-  // Built-in planner, used when the AI server is not reachable. Reads the request and the ticked options.
-  function localPlan(text, kind){
+  /* ----- edit plans ----- */
+  const CAP_STYLES = ['glassy','bold','pop','highlight','clean','elegant'];
+  const STYLE_NAME = {glassy:'glassy captions', bold:'bold word-by-word captions', pop:'one-word pop captions', highlight:'highlight-box captions', clean:'clean captions', elegant:'elegant serif captions'};
+  const STYLE_NAME_PT = {glassy:'legendas de vidro', bold:'legendas em negrito palavra por palavra', pop:'legendas de uma palavra', highlight:'legendas com destaque', clean:'legendas simples', elegant:'legendas elegantes'};
+  const COLOR_WORDS = {yellow:'#FFD43B', amarelo:'#FFD43B', amarela:'#FFD43B', green:'#3BE37A', verde:'#3BE37A', red:'#FF4D5E', vermelho:'#FF4D5E', vermelha:'#FF4D5E', blue:'#4DA3FF', azul:'#4DA3FF', pink:'#FF6FCF', rosa:'#FF6FCF', purple:'#A78BFA', roxo:'#A78BFA', roxa:'#A78BFA', orange:'#FF9F43', laranja:'#FF9F43', cyan:'#30E3C8', teal:'#30E3C8', white:'#FFFFFF', branco:'#FFFFFF', branca:'#FFFFFF'};
+  const FORMATS = ['original','9:16','1:1','16:9','4:5'];
+  const LOOK_NAMES = ['none','warm','cool','bw','vivid','cinematic'];
+  const DEFAULT_PLAN = {captions:'none', caption_position:'bottom', caption_color:'#FFD43B', cut_pauses:false, zooms:false, format:'original', look:'none', order:null, language:'auto', translate:false};
+  function normVideo(v, base){
+    v = v || {}; base = base || DEFAULT_PLAN;
+    const pick = (val, list, d) => list.includes(val) ? val : d;
+    const color = typeof v.caption_color === 'string' ? (COLOR_WORDS[v.caption_color.toLowerCase()] || (/^#[0-9a-f]{6}$/i.test(v.caption_color) ? v.caption_color : null)) : null;
+    return {
+      captions: pick(v.captions, [...CAP_STYLES, 'none'], base.captions),
+      caption_position: pick(v.caption_position, ['bottom','middle','top'], base.caption_position),
+      caption_color: color || base.caption_color,
+      cut_pauses: typeof v.cut_pauses === 'boolean' ? v.cut_pauses : base.cut_pauses,
+      zooms: typeof v.zooms === 'boolean' ? v.zooms : base.zooms,
+      format: pick(v.format, FORMATS, base.format),
+      look: pick(v.look, LOOK_NAMES, base.look),
+      order: Array.isArray(v.order) ? v.order.map(Number).filter(Number.isInteger) : base.order,
+      language: typeof v.language === 'string' ? v.language : base.language,
+      translate: typeof v.translate === 'boolean' ? v.translate : base.translate
+    };
+  }
+  const isPT = t => /\b(obrigad[oa]|valeu|olá|ola|oi|beleza|ficou|legal|muito|legenda|legendas|coloca|bota|corta|corte|junta|juntar|vídeo|video da|pausa|pausas|quero|deixa|faz|faça|não|nao|com|sem|mais|muda|troca|esse|essa|isso|por favor|pfv)\b/i.test(t);
+
+  // Built-in planner, used when the AI server is not reachable. It reads the request (English or Portuguese)
+  // and changes only what was asked; on a follow-up it starts from the previous settings.
+  function localPlan(text, base, nVideos){
+    const t = ' ' + text.toLowerCase().replace(/[’']/g,'') + ' ';
+    const has = (...w) => w.some(x => t.includes(x));
+    const neg = (...w) => w.some(x => new RegExp('(no|not|without|remove|sem|tira|tirar|nao|não|dont|stop)\\s+(the\\s+|as\\s+|a\\s+|o\\s+|os\\s+)?' + x).test(t));
+    const p = {...(base || DEFAULT_PLAN)};
+    let changed = false;
+    const set = (k, v) => { if(p[k] !== v){ p[k] = v; } changed = true; };
+    // caption style: the style mentioned LAST wins, ignoring negated ones ("not glassy, bold")
+    const KEYS = {
+      bold:['bold','negrito','hormozi','mrbeast','word by word','word-by-word','palavra por palavra','big caption','grande','yellow caption'],
+      pop:[' pop','one word','single word','uma palavra','one at a time','uma por vez'],
+      highlight:['highlight','box','karaoke','destaque','caixa','tiktok style','estilo tiktok'],
+      clean:['clean','simple','simples','plain','normal caption','basic','básica','basica','minimal'],
+      elegant:['elegant','elegante','serif','aesthetic','estética','estetica','classy','italic','itálico'],
+      glassy:['glass','vidro','frosted','fosco','blur caption']
+    };
+    let best = null, bestAt = -1;
+    for(const [style, words] of Object.entries(KEYS)) for(const w of words){
+      let i = t.lastIndexOf(w);
+      if(i > bestAt && !neg(w.trim())){ best = style; bestAt = i; }
+    }
+    const wantsCaps = has('caption','legenda','subtit','closed caption',' cc ','texto na tela','text on screen');
+    if(neg('caption','captions','legenda','legendas','subtitles','texto')) set('captions','none');
+    else if(best) set('captions', best);
+    else if(has('another style','different style','other style','outro estilo','estilo diferente','muda o estilo','change the style','change style') && p.captions !== 'none'){
+      const i = CAP_STYLES.indexOf(p.captions); set('captions', CAP_STYLES[(i + 1) % CAP_STYLES.length]);
+    }
+    else if(wantsCaps && p.captions === 'none') set('captions','glassy');
+    // caption position and color
+    if(has(' top','topo','em cima','no alto','upper')) set('caption_position','top');
+    else if(has('middle','center','centro','meio')) set('caption_position','middle');
+    else if(has('bottom','em baixo','embaixo','lower')) set('caption_position','bottom');
+    for(const [w, hex] of Object.entries(COLOR_WORDS)) if(new RegExp('\\b' + w + '\\b').test(t)){ set('caption_color', hex); if(p.captions === 'none') set('captions','bold'); break; }
+    // pauses and zooms
+    if(neg('pause','pausa','cut','corta','silence')) set('cut_pauses', false);
+    else if(has('pause','silence','silênc','silenc','dead air','pausa','corta','corte','tighten','jump cut','jumpcut','respira','breath','trim the gaps')) set('cut_pauses', true);
+    if(neg('zoom')) set('zooms', false); else if(has('zoom')) set('zooms', true);
+    // format
+    if(has('9:16','vertical',' short ','shorts','reels','story','stories','tiktok format','formato tiktok','celular')) set('format','9:16');
+    else if(has('16:9','horizontal','youtube','widescreen','landscape','deitado')) set('format','16:9');
+    else if(has('1:1','square','quadrad')) set('format','1:1');
+    else if(has('4:5','instagram post','post do instagram','feed')) set('format','4:5');
+    else if(has('original size','original format','tamanho original','formato original')) set('format','original');
+    // color look
+    if(neg('filter','filtro','color grade','grade')) set('look','none');
+    else if(has('black and white','b&w','preto e branco','grayscale','monochrome')) set('look','bw');
+    else if(has('cinematic','cinema','filmic','moody','color grade','colorização','colorizacao','grade')) set('look','cinematic');
+    else if(has('warm','quente','golden','dourad')) set('look','warm');
+    else if(has(' cool','cold','frio','fria','blue tone','azulado')) set('look','cool');
+    else if(has('vivid','vibrant','vibrante','saturat','pop the color','mais cor')) set('look','vivid');
+    // clip order and joining
+    if(nVideos > 1 && has('reverse','swap','second first','segundo primeiro','inverte','inverter','troca a ordem','other way')) set('order', [...Array(nVideos).keys()].reverse());
+    const joinAsked = has('join','combine','merge','together','stitch','juntar','junta','une ','unir','emenda','one video','um vídeo só','um video so');
+    if(joinAsked) changed = true;
+    // translation
+    if(has('translate','traduz','tradução','traducao','in english','em inglês','em ingles','english captions')){ set('translate', true); if(p.captions === 'none') set('captions','glassy'); }
+    // a plain "edit this" on a new video gets the full treatment
+    if(!changed && !base) Object.assign(p, {captions:'glassy', cut_pauses:true, zooms:true}), changed = true;
+    return {plan: p, changed};
+  }
+  const COLOR_LABEL = {'#FFD43B':['yellow','amarela'], '#3BE37A':['green','verde'], '#FF4D5E':['red','vermelha'], '#4DA3FF':['blue','azul'], '#FF6FCF':['pink','rosa'], '#A78BFA':['purple','roxa'], '#FF9F43':['orange','laranja'], '#30E3C8':['teal','azul-piscina'], '#FFFFFF':['white','branca']};
+  const colorName = (hex, pt) => { const l = COLOR_LABEL[String(hex).toUpperCase()]; return l ? (pt ? 'na cor ' + l[1] : 'in ' + l[0]) : (pt ? 'na cor escolhida' : 'in your color'); };
+  function describePlan(p, base, nVideos, pt){
+    const parts = [];
+    const S = pt ? STYLE_NAME_PT : STYLE_NAME;
+    const ref = base || DEFAULT_PLAN, diff = k => JSON.stringify(ref[k]) !== JSON.stringify(p[k]);
+    if(nVideos > 1 && !base) parts.push(pt ? `juntando os ${nVideos} clipes` : `joining your ${nVideos} clips`);
+    if(diff('order') && p.order && base) parts.push(pt ? 'trocando a ordem dos clipes' : 'swapping the clip order');
+    if(p.captions !== 'none' && (diff('captions') || diff('caption_color') || diff('caption_position'))) parts.push(S[p.captions] + (diff('caption_color') && ['bold','pop','highlight'].includes(p.captions) ? ' ' + colorName(p.caption_color, pt) : '') + (p.caption_position !== 'bottom' ? (pt ? (p.caption_position === 'top' ? ' em cima' : ' no meio') : ` at the ${p.caption_position}`) : ''));
+    if(p.captions === 'none' && base && base.captions !== 'none') parts.push(pt ? 'tirando as legendas' : 'removing the captions');
+    if(diff('cut_pauses')) parts.push(p.cut_pauses ? (pt ? 'cortando as pausas' : 'cutting the pauses') : (pt ? 'mantendo as pausas' : 'keeping the pauses'));
+    if(diff('zooms')) parts.push(p.zooms ? (pt ? 'zooms nas frases principais' : 'punch-in zooms') : (pt ? 'sem zooms' : 'no zooms'));
+    if(diff('format') && p.format !== 'original') parts.push(pt ? `formato ${p.format}` : `${p.format} format`);
+    if(diff('look')) parts.push(p.look === 'none' ? (pt ? 'cor original' : 'original color') : (pt ? `cor ${({warm:'quente',cool:'fria',bw:'preto e branco',vivid:'vibrante',cinematic:'cinematográfica'})[p.look]}` : `a ${({warm:'warm',cool:'cool',bw:'black and white',vivid:'vivid',cinematic:'cinematic'})[p.look]} look`));
+    if(p.translate && diff('translate')) parts.push(pt ? 'legendas traduzidas para o inglês' : 'captions translated to English');
+    if(!parts.length) return pt ? 'Beleza, renderizando de novo.' : 'Got it, rendering again.';
+    return (pt ? 'Feito: ' : 'On it: ') + parts.join(', ') + '.';
+  }
+
+  /* ----- photo plans ----- */
+  function localPhotoPlan(text){
     const t = text.toLowerCase();
     const has = (...w) => w.some(x => t.includes(x));
-    if(kind === 'video'){
-      const style = has('bold','word by word','word-by-word','yellow','negrito','amarel') ? 'bold' : has('clean','simple','simples') ? 'clean' : 'glassy';
-      const onlyOther = has('pause','silence','zoom','silênc','pausa') && !has('caption','subtit','legenda','glass','bold','text');
-      return {captions: onlyOther ? 'none' : style, cut_pauses: has('pause','silence','trim','pausa','silênc','corta'), zooms: has('zoom'), language: has('portugu','legenda','português') ? 'pt' : 'auto'};
-    }
     const e = {brightness:1.04, contrast:1.06, saturation:1.06, warmth:0, vignette:0, sharpen:.2, bw:false, crop:'original'};
     if(has('bright','light','clar','ilumin')) e.brightness = 1.16;
     if(has('dark','moody','escur')){ e.brightness = .9; e.contrast = 1.18; }
@@ -1288,34 +1394,10 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     if(has('sharp','nítid','nitid')) e.sharpen = .5;
     if(has('instagram','4:5')) e.crop = '4:5'; else if(has('square','1:1','quadrad')) e.crop = '1:1';
     else if(has('story','stories','reel','9:16','tiktok')) e.crop = '9:16'; else if(has('16:9','youtube','widescreen')) e.crop = '16:9';
-    return {edits:[e]};
-  }
-  const STYLE_NAME = {glassy:'glassy captions', bold:'bold word-by-word captions', clean:'clean captions'};
-  function describeVideoPlan(p){
-    const parts = [];
-    if(p.captions !== 'none') parts.push(STYLE_NAME[p.captions] || 'captions');
-    if(p.cut_pauses) parts.push('cutting the pauses');
-    if(p.zooms) parts.push('punch-in zooms');
-    return parts.length ? `On it: ${parts.join(', ')}.` : 'On it.';
-  }
-  function normVideo(v){
-    v = v || {};
-    return {
-      captions: ['glassy','bold','clean','none'].includes(v.captions) ? v.captions : 'glassy',
-      cut_pauses: !!v.cut_pauses, zooms: !!v.zooms,
-      language: typeof v.language === 'string' ? v.language : 'auto'
-    };
+    return [e];
   }
 
-  function videoDuration(file){
-    return new Promise(res=>{
-      const v = document.createElement('video'); const u = URL.createObjectURL(file);
-      v.preload = 'metadata'; v.muted = true; v.src = u;
-      v.onloadedmetadata = () => { res(v.duration || 0); URL.revokeObjectURL(u); };
-      v.onerror = () => { res(0); URL.revokeObjectURL(u); };
-    });
-  }
-  const costFor = (videos, images, dur) => videos.length ? (dur <= 60 ? 20 : Math.ceil(dur/60)*8) : images.length ? images.length*3 : 0;
+  const costFor = (videoSecs, images, followUp) => followUp ? 5 : videoSecs ? (videoSecs <= 60 ? 20 : Math.ceil(videoSecs/60)*8) : images ? images*3 : 0;
   async function smallBase64(file){
     const img = await loadImage(file);
     const k = Math.min(1, 1024/Math.max(img.width, img.height));
@@ -1325,6 +1407,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const data = await new Promise(r=>{ const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(b); });
     return {media_type:'image/jpeg', data};
   }
+  const EDIT_WORDS = /caption|legenda|subtit|pause|pausa|silen|corta|corte|cut|zoom|bold|glass|vidro|clean|simple|pop|highlight|elegant|serif|style|estilo|color|cor\b|warm|quente|cool|frio|black and white|preto|cinematic|vivid|vertical|horizontal|9:16|16:9|1:1|4:5|square|format|formato|top|bottom|middle|cima|baixo|meio|order|ordem|reverse|inverte|translate|traduz|again|de novo|redo|refaz|change|muda|troca|remove|tira|add|coloca|bota|make|faz|yellow|green|red|blue|pink|purple|orange|amarel|verde|vermelh|azul|rosa|roxo|laranja/i;
 
   async function send(){
     if(busy) return;
@@ -1334,48 +1417,78 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const full = [text, opts.length ? `Options: ${opts.join(', ')}.` : ''].filter(Boolean).join('\n');
     const myAtts = atts.map(a=>({kind:a.kind, name:a.name, url:a.url, file:a.file}));
     const videos = myAtts.filter(a=>a.kind==='video'), images = myAtts.filter(a=>a.kind==='image');
-    const dur = videos.length ? await videoDuration(videos[0].file) : 0;
-    const cost = costFor(videos, images, dur);
-    const admin = !!profile?.is_admin;
-    if(cost && !admin && (profile?.credits ?? 0) < cost){
-      toast(`This edit needs ${cost} credits. You have ${profile?.credits ?? 0}.`);
-      showLock(); return;
-    }
     if(!current || current.example){
       current = {id:'c'+Date.now(), title:(text || (myAtts[0]?.name) || 'New edit').slice(0,48), msgs:[], turns:[]};
       myChats.unshift(current);
     }
-    current.msgs.push({role:'user', text:full, atts:myAtts});
-    saveMessage(current, 'user', full, myAtts.map(a=>({name:a.name, kind:a.kind})));
+    const chat = current;
+    const prevEdit = !videos.length && !images.length && chat.edit ? chat.edit : null;
+    const durs = videos.length ? await Promise.all(videos.map(v=>videoDuration(v.file))) : [];
+    const totalDur = durs.reduce((a,b)=>a+b, 0);
+    if(totalDur > 600){ toast('For now, videos can add up to 10 minutes per edit.'); return; }
+    const admin = !!profile?.is_admin;
+    const maybeCost = costFor(totalDur, images.length, !!prevEdit && EDIT_WORDS.test(full));
+    if(maybeCost && !admin && (profile?.credits ?? 0) < maybeCost){
+      toast(`This edit needs ${maybeCost} credits. You have ${profile?.credits ?? 0}.`);
+      showLock(); return;
+    }
+    chat.msgs.push({role:'user', text:full, atts:myAtts});
+    saveMessage(chat, 'user', full, myAtts.map(a=>({name:a.name, kind:a.kind})));
     const ai = {role:'ai', thinking: images.length ? 'Looking at your photos...' : 'Thinking...'};
-    current.msgs.push(ai);
+    chat.msgs.push(ai);
     msgBox.value = ''; atts = []; drawAtts(); grow();
     $('optChecks').querySelectorAll('input').forEach(i=>i.checked = false); $('optCount').textContent = ''; closeOpt();
     busy = true; updateSend(); render();
-    const chat = current;
+    let charged = 0;
     try{
-      const note = videos.length ? `\n[Attached: video "${videos[0].name}", ${Math.round(dur)} seconds]` : images.length ? `\n[Attached: ${images.length} photo(s)]` : '';
+      const pt = isPT(full);
+      let note = '';
+      if(videos.length) note = `\n[Attached: ${videos.length} video(s): ${videos.map((v,i)=>`#${i} "${v.name}" ${Math.round(durs[i])}s`).join(', ')}]`;
+      else if(images.length) note = `\n[Attached: ${images.length} photo(s)]`;
+      else if(chat.edit) note = `\n[No new files. The previous video edit in this chat used ${chat.edit.files.length} clip(s) with settings ${JSON.stringify(chat.edit.plan)}]`;
       chat.turns.push({role:'user', content: full + note});
       const imgs = images.length ? await Promise.all(images.slice(0,4).map(a=>smallBase64(a.file).catch(()=>null))).then(a=>a.filter(Boolean)) : undefined;
       const res = await askKerf(chat.turns.slice(-12), imgs);
-      if(videos.length){
-        const plan = normVideo(res?.video || localPlan(full, 'video'));
-        ai.thinking = null; ai.text = res?.reply || describeVideoPlan(plan);
-        refreshSoon(chat);
-        await videoTurn(chat, ai, videos[0].file, plan);
+      if(videos.length || prevEdit){
+        const files = videos.length ? videos.map(v=>v.file) : prevEdit.files;
+        const base = videos.length ? null : prevEdit.plan;
+        let plan, go = true;
+        if(res && res.video){
+          plan = normVideo(res.video, base || DEFAULT_PLAN);
+        } else if(res && !videos.length){
+          go = false; // the AI answered a question about the last video without asking for a new render
+        } else {
+          const lp = localPlan(full, base, files.length);
+          plan = lp.plan; go = videos.length > 0 || (lp.changed && EDIT_WORDS.test(full));
+        }
+        if(!go){
+          const thanks = /obrigad|valeu|thank|thx|vlw|perfect|perfeito|amei|loved it|great/i.test(full);
+          ai.text = res?.reply || (thanks ? (pt ? 'De nada! Se quiser mudar mais alguma coisa no vídeo, é só falar.' : 'You are welcome! Tell me if you want to change anything else.') : pt ? 'Me diz o que mudar no vídeo, tipo “legenda em negrito amarela” ou “tira os zooms”.' : 'Tell me what to change in the video, like “bold yellow captions” or “remove the zooms”.');
+        } else {
+          const cost = costFor(totalDur, 0, !videos.length);
+          if(cost && !admin && (profile?.credits ?? 0) < cost) throw {msg:`This edit needs ${cost} credits. You have ${profile?.credits ?? 0}.`};
+          ai.thinking = null; ai.text = res?.reply || describePlan(plan, base, files.length, pt);
+          refreshSoon(chat);
+          await videoTurn(chat, ai, files, plan);
+          chat.edit = {files, plan};
+          charged = cost;
+        }
       } else if(images.length){
-        const edits = Array.isArray(res?.photo?.edits) && res.photo.edits.length ? res.photo.edits : localPlan(full, 'photo').edits;
+        const edits = Array.isArray(res?.photo?.edits) && res.photo.edits.length ? res.photo.edits : localPhotoPlan(full);
         ai.thinking = 'Editing your photos...'; refreshSoon(chat);
         await photoTurn(chat, ai, images, edits);
         ai.text = res?.reply || 'Here are your edited photos. Drag the slider to compare.';
+        charged = costFor(0, images.length, false);
       } else {
-        ai.text = res?.reply || 'Send me a video or some photos and tell me what you want, like “add glassy captions and cut the pauses.”';
+        ai.text = res?.reply || (isPT(full)
+          ? 'Me manda um ou mais vídeos (ou fotos) e diz o que quer. Exemplos: “junta esses clipes e coloca legenda em negrito”, “corta as pausas”, “legenda de uma palavra em verde”, “deixa vertical com cor cinematográfica”.'
+          : 'Send me one or more videos (or photos) and tell me what you want. For example: “join these clips and add bold captions”, “cut the pauses”, “one-word captions in green”, “make it vertical with a cinematic look”.');
       }
       ai.thinking = null;
       chat.turns.push({role:'assistant', content: ai.text});
-      if(cost && !admin && sb){
-        const {data:ok} = await sb.rpc('spend_credits', {p_amount: cost});
-        if(ok && profile){ profile.credits -= cost; applyAccount(); }
+      if(charged && !admin && sb){
+        const {data:ok} = await sb.rpc('spend_credits', {p_amount: charged});
+        if(ok && profile){ profile.credits -= charged; applyAccount(); }
       }
       saveMessage(chat, 'assistant', ai.text + (ai.photos?.length ? `\n[${ai.photos.length} edited photo(s)]` : '') + (ai.outVideo ? '\n[edited video]' : ''), []);
     } catch(e){
@@ -1397,86 +1510,167 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   }
 
   /* ----- video ----- */
-  async function videoTurn(chat, ai, file, plan){
+  function videoDuration(file){
+    return new Promise(res=>{
+      const v = document.createElement('video'); const u = URL.createObjectURL(file);
+      v.preload = 'metadata'; v.muted = true; v.src = u;
+      v.onloadedmetadata = () => { res(v.duration || 0); URL.revokeObjectURL(u); };
+      v.onerror = () => { res(0); URL.revokeObjectURL(u); };
+    });
+  }
+  const fmtDur = d => { d = Math.max(0, Math.round(d)); return Math.floor(d/60) + ':' + String(d%60).padStart(2,'0'); };
+  const clipCache = new WeakMap(); // file -> decoded clip (audio, transcript), so follow-up edits are fast
+
+  async function videoTurn(chat, ai, files, plan){
     const steps = ai.steps = [];
-    const step = t => { const s = {t, s:'run', tm:''}; steps.push(s); refreshSoon(chat); return s; };
+    const step = t => { const s = {t, s:'run', tm:''}; steps.push(s); lastRefresh = 0; refreshSoon(chat); return s; };
     const done = (s, tm) => { s.s = 'done'; if(tm != null) s.tm = tm; lastRefresh = 0; refreshSoon(chat); };
-    let s = step('Reading your video');
-    const media = await readVideo(file);
-    done(s, fmtDur(media.duration));
-    let words = [];
+    const n = files.length;
+    let s = step(n > 1 ? `Reading your ${n} clips` : 'Reading your video');
+    const clips = [];
+    for(const f of files) clips.push(await readClip(f));
+    done(s, fmtDur(clips.reduce((a,c)=>a + c.duration, 0)));
+    let order = [...clips.keys()];
+    if(plan.order && plan.order.length === n && new Set(plan.order).size === n && plan.order.every(i=>i >= 0 && i < n)) order = plan.order;
     if(plan.captions !== 'none'){
-      if(!media.pcm){ ai.error = 'This video has no sound I can read, so I skipped the captions.'; plan.captions = 'none'; }
-      else {
-        s = step('Loading the caption engine (only slow the first time)');
-        let asr;
-        try{ asr = await getASR(p => { s.tm = Math.round(p) + '%'; refreshSoon(chat); }); }
-        catch(e){ throw {msg:'The caption engine could not load. Check your internet connection and try again.'}; }
-        done(s, '');
-        s = step('Writing captions (keep this tab open)');
-        await new Promise(r=>setTimeout(r, 60));
-        words = await transcribe(asr, media.pcm, plan.language);
-        done(s, words.length + ' words');
-        if(!words.length){ plan.captions = 'none'; }
+      const need = clips.filter(c => c.pcm && !c.words?.[wordsKey(plan)]);
+      if(clips.every(c => !c.pcm)){ ai.error = 'These videos have no sound I can read, so I skipped the captions.'; plan = {...plan, captions:'none'}; }
+      else if(need.length){
+        s = step('Loading the caption engine (first time only)');
+        const ok = await warmASR(p => { s.tm = Math.round(p) + '%'; refreshSoon(chat); });
+        done(s, ok ? '' : 'slow mode');
+        for(let i=0;i<need.length;i++){
+          s = step(need.length > 1 ? `Listening to clip ${clips.indexOf(need[i]) + 1} of ${n}` : 'Listening and writing captions');
+          const words = await transcribe(need[i].pcm, plan, p => { s.tm = p; refreshSoon(chat); });
+          (need[i].words ||= {})[wordsKey(plan)] = words;
+          done(s, words.length + ' words');
+        }
       }
     }
-    let keep = [[0, media.duration]];
-    if(plan.cut_pauses && media.pcm){
+    if(plan.cut_pauses && clips.some(c=>c.pcm)){
       s = step('Cutting pauses');
-      keep = findSpeech(media.pcm, media.duration);
-      const cut = media.duration - keep.reduce((a,[x,y])=>a+(y-x),0);
+      let cut = 0;
+      for(const c of clips){ c.keep = c.pcm ? findSpeech(c.pcm, c.duration) : [[0, c.duration]]; cut += c.duration - c.keep.reduce((a,[x,y])=>a+(y-x),0); }
       done(s, cut > .05 ? cut.toFixed(1) + ' s removed' : 'no long pauses');
+    } else clips.forEach(c => c.keep = [[0, c.duration]]);
+    // timeline: each kept piece of each clip, in order, snapped to whole frames
+    const segs = []; let off = 0;
+    for(const ci of order) for(const [a,b] of clips[ci].keep){
+      const nF = Math.max(1, Math.round((b - a)*FPS)); segs.push({ci, s:a, nF, off}); off += nF/FPS;
     }
-    s = step('Rendering your video (keep this tab open)');
-    const out = await renderVideo(media, words, plan, keep, p => { s.tm = Math.round(p*100) + '%'; refreshSoon(chat); });
+    const words = [];
+    if(plan.captions !== 'none') for(const sg of segs){
+      const len = sg.nF/FPS, list = clips[sg.ci].words?.[wordsKey(plan)] || [];
+      for(const w of list) if(w.start >= sg.s - .05 && w.start < sg.s + len - .02)
+        words.push({text:w.text, start: sg.off + Math.max(0, w.start - sg.s), end: sg.off + Math.min(len, w.end - sg.s)});
+    }
+    const caps = plan.captions !== 'none' ? buildChunks(words, plan.captions) : [];
+    const [W, H] = outSize(plan, clips[order[0]]);
+    await loadCaptionFonts();
+    s = step(n > 1 ? `Joining ${n} clips and rendering` : 'Rendering your video');
+    const prog = p => { s.tm = Math.round(p*100) + '%'; refreshSoon(chat); };
+    let out;
+    try{ out = await renderFast(clips, segs, caps, plan, W, H, prog); }
+    catch(e){
+      console.warn('fast render unavailable, using real-time render', e);
+      s.t = (n > 1 ? `Joining ${n} clips` : 'Rendering') + ' in real time (keep this tab open)'; s.tm = '';
+      out = await renderRealtime(clips, segs, caps, plan, W, H, prog);
+    }
     done(s, '100%');
     const key = 'v' + Date.now();
     DL[key] = {blob: out.blob, name: out.name};
-    ai.outVideo = {url: out.url, w: out.w, h: out.h, key, meta: `${fmtDur(out.duration)} · ${out.w}×${out.h} · ${out.name.split('.').pop().toUpperCase()}`};
+    ai.outVideo = {url: URL.createObjectURL(out.blob), w: W, h: H, key, meta: `${fmtDur(off)} · ${W}×${H} · ${out.name.split('.').pop().toUpperCase()}`};
   }
-  const fmtDur = d => { d = Math.max(0, Math.round(d)); return Math.floor(d/60) + ':' + String(d%60).padStart(2,'0'); };
+  const wordsKey = plan => plan.translate ? 'en-translate' : (plan.language || 'auto');
 
-  async function readVideo(file){
+  async function readClip(file){
+    if(clipCache.has(file)) return clipCache.get(file);
     const url = URL.createObjectURL(file);
-    const v = document.createElement('video'); v.preload = 'auto'; v.muted = true; v.playsInline = true; v.src = url;
-    await new Promise((ok, bad)=>{ v.onloadedmetadata = ok; v.onerror = () => bad({msg:'I could not open this video. Try an MP4 or MOV file.'}); });
+    const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true; v.playsInline = true; v.src = url;
+    await new Promise((ok, bad)=>{ v.onloadedmetadata = ok; v.onerror = () => bad({msg:`I could not open “${file.name}”. Try an MP4 or MOV file.`}); });
     const duration = v.duration, w = v.videoWidth, h = v.videoHeight;
-    if(!w || !h) throw {msg:'I could not read the picture in this video. Try an MP4 or MOV file.'};
-    if(duration > 600) throw {msg:'For now, videos can be up to 10 minutes long.'};
-    let pcm = null;
+    if(!w || !h || !isFinite(duration)) throw {msg:`I could not read the picture in “${file.name}”. Try an MP4 or MOV file.`};
+    let pcm = null, audio = null;
     try{
       const AC = window.AudioContext || window.webkitAudioContext;
-      const ac = new AC(); const audio = await ac.decodeAudioData(await file.arrayBuffer()); ac.close();
-      const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(audio.duration*16000)), 16000);
-      const src = off.createBufferSource(); src.buffer = audio; src.connect(off.destination); src.start();
-      pcm = (await off.startRendering()).getChannelData(0);
-    }catch(e){ pcm = null; }
-    return {url, w, h, duration, pcm};
+      const ac = new AC(); const decoded = await ac.decodeAudioData(await file.arrayBuffer()); ac.close();
+      const to = async (ch, rate) => { const off = new OfflineAudioContext(ch, Math.max(1, Math.ceil(decoded.duration*rate)), rate); const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start(); return off.startRendering(); };
+      pcm = (await to(1, 16000)).getChannelData(0);
+      audio = await to(2, 48000);
+    }catch(e){ pcm = null; audio = null; }
+    const clip = {file, url, w, h, duration, pcm, audio, words:null, keep:null};
+    clipCache.set(file, clip);
+    return clip;
   }
 
-  let asrPromise = null, asrProgress = null;
-  function getASR(onProgress){
-    asrProgress = onProgress;
-    if(!asrPromise) asrPromise = (async()=>{
-      const T = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js');
+  /* speech to text runs in a background worker so the page never freezes */
+  const ASR_LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js';
+  const ASR_MODEL = 'Xenova/whisper-base';
+  const WORKER_SRC = `
+    import { pipeline } from '${ASR_LIB}';
+    let asr = null;
+    async function load(id){
+      if(asr) return asr;
       const files = {};
-      return await T.pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
-        progress_callback: p => {
-          if(p.status !== 'progress' || !p.total) return;
-          files[p.file] = [p.loaded, p.total];
-          const all = Object.values(files), l = all.reduce((a,b)=>a+b[0],0), t = all.reduce((a,b)=>a+b[1],0);
-          asrProgress && asrProgress(t ? l/t*100 : 0);
-        }
-      });
-    })().catch(e=>{ asrPromise = null; throw e; });
-    return asrPromise;
+      asr = await pipeline('automatic-speech-recognition', '${ASR_MODEL}', { progress_callback: p => {
+        if(p.status !== 'progress' || !p.total) return;
+        files[p.file] = [p.loaded, p.total];
+        const all = Object.values(files), l = all.reduce((a,b)=>a+b[0],0), t = all.reduce((a,b)=>a+b[1],0);
+        self.postMessage({id, type:'progress', value: t ? l/t*100 : 0});
+      }});
+      return asr;
+    }
+    self.onmessage = async (e) => {
+      const {id, pcm, opts, warm} = e.data;
+      try{
+        const a = await load(id);
+        if(warm){ self.postMessage({id, type:'done', out:null}); return; }
+        const out = await a(pcm, opts);
+        self.postMessage({id, type:'done', out:{text: out.text, chunks: out.chunks}});
+      }catch(err){ self.postMessage({id, type:'error', message: String(err && err.message || err)}); }
+    };`;
+  let asrWorker = null, asrSeq = 0, mainASR = null;
+  const asrJobs = new Map();
+  function worker(){
+    if(asrWorker) return asrWorker;
+    asrWorker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], {type:'text/javascript'})), {type:'module'});
+    asrWorker.onmessage = e => {
+      const j = asrJobs.get(e.data.id); if(!j) return;
+      if(e.data.type === 'progress') j.progress?.(e.data.value);
+      else { asrJobs.delete(e.data.id); e.data.type === 'done' ? j.ok(e.data.out) : j.bad(new Error(e.data.message)); }
+    };
+    asrWorker.onerror = () => { asrJobs.forEach(j=>j.bad(new Error('worker'))); asrJobs.clear(); asrWorker = 'broken'; };
+    return asrWorker;
   }
-  async function transcribe(asr, pcm, language){
+  function workerCall(msg, progress, transfer){
+    return new Promise((ok, bad) => {
+      const w = worker(); if(w === 'broken') return bad(new Error('worker'));
+      const id = ++asrSeq; asrJobs.set(id, {ok, bad, progress});
+      w.postMessage({id, ...msg}, transfer || []);
+    });
+  }
+  async function warmASR(progress){
+    if(asrWorker !== 'broken'){
+      try{ await workerCall({warm:true}, progress); return true; }catch(e){ console.warn('caption worker failed, using the page', e); asrWorker = 'broken'; }
+    }
+    // fallback: run on the page itself (slower and the page can stutter)
+    try{
+      mainASR ||= import(ASR_LIB).then(T => T.pipeline('automatic-speech-recognition', ASR_MODEL)).catch(e=>{ mainASR = null; throw e; });
+      await mainASR; return false;
+    }catch(e){ throw {msg:'The caption engine could not load. Check your internet connection and try again.'}; }
+  }
+  async function transcribe(pcm, plan, tick){
     const LANG = {en:'english', pt:'portuguese', es:'spanish', fr:'french', de:'german', it:'italian'};
     const opts = {return_timestamps:true, chunk_length_s:30, stride_length_s:5};
-    if(LANG[language]){ opts.language = LANG[language]; opts.task = 'transcribe'; }
-    const out = await asr(pcm, opts);
+    if(plan.translate){ opts.task = 'translate'; }
+    else if(LANG[plan.language]){ opts.language = LANG[plan.language]; opts.task = 'transcribe'; }
     const total = pcm.length/16000;
+    const t0 = Date.now(), timer = setInterval(()=>tick(Math.round((Date.now()-t0)/1000) + 's'), 1000);
+    let out;
+    try{
+      if(asrWorker !== 'broken'){ const copy = pcm.slice(); out = await workerCall({pcm: copy, opts}, null, [copy.buffer]); }
+      else { await new Promise(r=>setTimeout(r, 50)); out = await (await mainASR)(pcm, opts); }
+    } finally { clearInterval(timer); }
     const chunks = (out.chunks && out.chunks.length) ? out.chunks : [{text: out.text || '', timestamp:[0, total]}];
     const words = [];
     for(const c of chunks){
@@ -1510,8 +1704,9 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     return kept.length ? kept : [[0, dur]];
   }
 
+  /* ----- captions ----- */
   function buildChunks(words, style){
-    const max = style === 'bold' ? 3 : style === 'glassy' ? 5 : 6, chunks = [];
+    const max = {bold:3, pop:1, highlight:4, glassy:5, elegant:5, clean:6}[style] || 5, chunks = [];
     let cur = [];
     const flush = () => { if(cur.length) chunks.push({words:cur, start:cur[0].start}); cur = []; };
     words.forEach((w,i)=>{
@@ -1520,10 +1715,12 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       if(cur.length >= max || /[.!?,;:]$/.test(w.text) || (next && next.start - w.end > .6)) flush();
     });
     flush();
-    chunks.forEach((c,i)=>{ const last = c.words[c.words.length-1]; c.end = Math.min(chunks[i+1]?.start ?? Infinity, last.end + .6); });
+    chunks.forEach((c,i)=>{ const last = c.words[c.words.length-1]; c.end = Math.min(chunks[i+1]?.start ?? Infinity, last.end + (style === 'pop' ? .25 : .6)); });
     return chunks;
   }
-
+  async function loadCaptionFonts(){
+    try{ await Promise.all(['900 40px Montserrat','800 40px Montserrat','600 40px Geist','800 40px Geist','italic 400 40px "Instrument Serif"'].map(f=>document.fonts.load(f))); }catch(e){}
+  }
   function layoutWords(x, texts, maxW){
     const space = x.measureText(' ').width, lines = [];
     let line = {items:[], width:0};
@@ -1538,34 +1735,72 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   }
   function roundRectPath(x, a, b, w, h, r){ x.beginPath(); x.moveTo(a+r,b); x.arcTo(a+w,b,a+w,b+h,r); x.arcTo(a+w,b+h,a,b+h,r); x.arcTo(a,b+h,a,b,r); x.arcTo(a,b,a+w,b,r); x.closePath(); }
   const glassBuf = document.createElement('canvas');
-  function drawCaption(x, W, H, cap, t, style){
-    const base = Math.min(W, H);
+  const isLight = hex => { const n = parseInt(hex.slice(1),16); return ((n>>16)*.299 + ((n>>8)&255)*.587 + (n&255)*.114) > 150; };
+  function drawCaption(x, W, H, cap, t, plan){
+    const style = plan.captions, color = plan.caption_color || '#FFD43B';
+    const base = Math.min(W, H), wide = W > H;
     const isOn = i => t >= cap.words[i].start && t < (cap.words[i+1]?.start ?? cap.end);
     const said = i => t >= cap.words[i].start - .02;
+    const posY = {top: .2, middle: .5, bottom: wide ? .8 : .74}[plan.caption_position] ?? .74;
+    const cy = H*posY;
     x.save(); x.textBaseline = 'middle'; x.textAlign = 'left';
     if(style === 'bold'){
       const fs = Math.round(base*.085);
       x.font = `900 ${fs}px Montserrat, "Arial Black", Arial, sans-serif`;
       const lines = layoutWords(x, cap.words.map(w=>w.text.toUpperCase()), W*.86);
-      let y = H*.72 - (lines.length - 1)*fs*.58;
+      let y = cy - (lines.length - 1)*fs*.58;
       x.lineJoin = 'round'; x.lineWidth = fs*.2; x.strokeStyle = '#000';
       for(const line of lines){
         let lx = (W - line.width)/2;
-        for(const it of line.items){
-          x.strokeText(it.text, lx, y);
-          x.fillStyle = isOn(it.i) ? '#FFD43B' : '#FFFFFF';
-          x.fillText(it.text, lx, y);
-          lx += it.w + it.space;
-        }
+        for(const it of line.items){ x.strokeText(it.text, lx, y); x.fillStyle = isOn(it.i) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
         y += fs*1.16;
       }
+    } else if(style === 'pop'){
+      const w = cap.words[0], age = Math.max(0, t - w.start), k = .72 + .28*Math.min(1, age/.11) + .06*Math.max(0, 1 - Math.abs(age - .12)/.08);
+      const word = w.text.toUpperCase(), fs = Math.round(base*.12);
+      x.font = `900 ${fs}px Montserrat, "Arial Black", Arial, sans-serif`;
+      let tw = x.measureText(word).width; const fit = Math.min(1, W*.88/tw);
+      x.translate(W/2, cy); x.scale(k*fit, k*fit);
+      x.lineJoin = 'round'; x.lineWidth = fs*.22; x.strokeStyle = '#000';
+      x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = fs*.3; x.shadowOffsetY = fs*.06;
+      x.strokeText(word, -tw/2, 0); x.shadowColor = 'transparent';
+      x.fillStyle = (/\d/.test(word) || word.replace(/[^A-ZÀ-Ý]/g,'').length >= 6) ? color : '#FFFFFF';
+      x.fillText(word, -tw/2, 0);
+    } else if(style === 'highlight'){
+      const fs = Math.round(base*.066);
+      x.font = `800 ${fs}px Geist, Inter, Arial, sans-serif`;
+      const lines = layoutWords(x, cap.words.map(w=>w.text), W*.84);
+      const lh = fs*1.45; let y = cy - (lines.length - 1)*lh/2;
+      for(const line of lines){
+        let lx = (W - line.width)/2;
+        for(const it of line.items){
+          if(isOn(it.i)){ const px = fs*.22; roundRectPath(x, lx - px, y - fs*.66, it.w + px*2, fs*1.32, fs*.28); x.fillStyle = color; x.fill(); }
+          x.lineJoin = 'round'; x.lineWidth = fs*.14; x.strokeStyle = 'rgba(0,0,0,.85)';
+          if(!isOn(it.i)) x.strokeText(it.text, lx, y);
+          x.fillStyle = isOn(it.i) ? (isLight(color) ? '#111' : '#FFF') : '#FFFFFF';
+          x.fillText(it.text, lx, y); lx += it.w + it.space;
+        }
+        y += lh;
+      }
+    } else if(style === 'elegant'){
+      const fs = Math.round(base*.078);
+      x.font = `italic 400 ${fs}px "Instrument Serif", Georgia, serif`;
+      const lines = layoutWords(x, cap.words.map(w=>w.text), W*.8);
+      const lh = fs*1.08; let y = cy - (lines.length - 1)*lh/2;
+      x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = fs*.35;
+      for(const line of lines){
+        let lx = (W - line.width)/2;
+        for(const it of line.items){ const a = Math.min(1, Math.max(0, (t - cap.words[it.i].start + .05)/.18)); x.globalAlpha = .25 + .75*a; x.fillStyle = '#FFF'; x.fillText(it.text, lx, y + (1 - a)*fs*.12); lx += it.w + it.space; }
+        y += lh;
+      }
+      x.globalAlpha = 1;
     } else if(style === 'glassy'){
       const fs = Math.round(base*.05);
       x.font = `600 ${fs}px Geist, Inter, "Helvetica Neue", Arial, sans-serif`;
       const lines = layoutWords(x, cap.words.map(w=>w.text), W*.76);
       const padX = fs*.85, padY = fs*.6, lh = fs*1.32;
       const bw = Math.max(...lines.map(l=>l.width)) + padX*2, bh = lines.length*lh + padY*2 - (lh - fs);
-      const bx = (W - bw)/2, by = H*.76 - bh/2, r = Math.min(bh/2, fs*.9);
+      const bx = (W - bw)/2, by = cy - bh/2, r = Math.min(bh/2, fs*.9);
       roundRectPath(x, bx, by, bw, bh, r); x.clip();
       const pad = Math.round(fs), gx = Math.max(0, Math.floor(bx - pad)), gy = Math.max(0, Math.floor(by - pad));
       const gw = Math.min(W - gx, Math.ceil(bw + pad*2)), gh = Math.min(H - gy, Math.ceil(bh + pad*2));
@@ -1588,7 +1823,8 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       const fs = Math.round(base*.045);
       x.font = `700 ${fs}px Geist, Inter, Arial, sans-serif`;
       const lines = layoutWords(x, cap.words.map(w=>w.text), W*.84);
-      let y = H*.86 - (lines.length - 1)*fs*1.2;
+      const yy = plan.caption_position === 'bottom' ? H*(wide ? .88 : .86) : cy;
+      let y = yy - (lines.length - 1)*fs*1.2*(plan.caption_position === 'bottom' ? 1 : .5);
       x.shadowColor = 'rgba(0,0,0,0.75)'; x.shadowBlur = fs*.35; x.fillStyle = '#FFFFFF';
       for(const line of lines){
         let lx = (W - line.width)/2;
@@ -1598,54 +1834,145 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     }
     x.restore();
   }
-  function drawFrame(x, v, W, H, t, caps, plan){
+
+  /* ----- frames ----- */
+  const LOOKS = {
+    warm:{filter:'saturate(1.12) brightness(1.03)', tint:'rgba(255,150,60,0.16)'},
+    cool:{filter:'saturate(0.96) brightness(1.02)', tint:'rgba(70,140,255,0.16)'},
+    bw:{filter:'grayscale(1) contrast(1.12)'},
+    vivid:{filter:'saturate(1.38) contrast(1.08)'},
+    cinematic:{filter:'contrast(1.14) saturate(0.86) brightness(0.97)', tint:'rgba(0,110,130,0.18)', vignette:.5}
+  };
+  function outSize(plan, c){
+    const R = {'9:16':[1080,1920], '1:1':[1080,1080], '16:9':[1920,1080], '4:5':[1080,1350]};
+    if(R[plan.format]) return R[plan.format];
+    const k = Math.min(1, 1920/Math.max(c.w, c.h));
+    return [Math.round(c.w*k/2)*2, Math.round(c.h*k/2)*2];
+  }
+  function drawFrame(x, W, H, src, sw, sh, t, caps, plan){
     let z = 1;
     if(plan.zooms){
-      const ci = caps.length ? caps.findIndex(c=>t >= c.start && t < c.end) : Math.floor(t/3);
-      const startT = caps.length ? caps[ci]?.start : Math.floor(t/3)*3;
-      if(ci >= 0 && ci % 3 === 0 && startT != null){ const p = Math.min(1, (t - startT)/.18); z = 1 + .09*(1 - Math.pow(1 - p, 3)); }
+      const ci = caps.length ? caps.findIndex(c=>t >= c.start && t < c.end) : Math.floor(t/4);
+      const startT = caps.length ? caps[ci]?.start : Math.floor(t/4)*4;
+      const every = plan.captions === 'pop' ? 6 : 3;
+      if(ci >= 0 && ci % every === 0 && startT != null){ const p = Math.min(1, (t - startT)/.18); z = 1 + .09*(1 - Math.pow(1 - p, 3)); }
     }
-    const dw = W*z, dh = H*z;
-    x.drawImage(v, (W - dw)/2, (H - dh)/2, dw, dh);
-    if(caps.length){ const cap = caps.find(c=>t >= c.start - .02 && t < c.end); if(cap) drawCaption(x, W, H, cap, t, plan.captions); }
+    const look = LOOKS[plan.look];
+    const k = Math.max(W/sw, H/sh)*z, dw = sw*k, dh = sh*k;
+    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    if(look?.filter) x.filter = look.filter;
+    x.drawImage(src, (W - dw)/2, (H - dh)/2, dw, dh);
+    x.filter = 'none';
+    if(look?.tint){ x.save(); x.globalCompositeOperation = 'soft-light'; x.fillStyle = look.tint; x.fillRect(0, 0, W, H); x.restore(); }
+    if(look?.vignette){ const g = x.createRadialGradient(W/2, H/2, Math.min(W,H)*.35, W/2, H/2, Math.hypot(W,H)*.55); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,`rgba(0,0,0,${look.vignette})`); x.fillStyle = g; x.fillRect(0, 0, W, H); }
+    if(caps.length){ const cap = caps.find(c=>t >= c.start - .02 && t < c.end); if(cap) drawCaption(x, W, H, cap, t, plan); }
   }
 
-  async function renderVideo(media, words, plan, keep, onProgress){
-    const v = document.createElement('video'); v.src = media.url; v.playsInline = true; v.preload = 'auto';
-    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
-    document.body.appendChild(v);
-    await new Promise(r=>{ if(v.readyState >= 1) r(); else v.onloadedmetadata = r; });
-    const k = Math.min(1, 1920/Math.max(media.w, media.h));
-    const W = Math.round(media.w*k/2)*2, H = Math.round(media.h*k/2)*2;
+  /* fast render: decodes and encodes frame by frame with the browser's video engine (faster than real time) */
+  const MB_URL = 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.4/dist/bundles/mediabunny.min.mjs';
+  let mbPromise = null;
+  const getMB = () => (mbPromise ||= import(MB_URL).catch(e=>{ mbPromise = null; throw e; }));
+  function segmentAudio(clip, s, len){
+    const sr = 48000, n = Math.max(1, Math.round(len*sr));
+    const out = new AudioBuffer({length:n, numberOfChannels:2, sampleRate:sr});
+    if(clip.audio){
+      const st = Math.round(s*sr), fade = Math.min(n >> 1, 192);
+      for(let ch=0; ch<2; ch++){
+        const src = clip.audio.getChannelData(Math.min(ch, clip.audio.numberOfChannels - 1)), dst = out.getChannelData(ch);
+        dst.set(src.subarray(Math.min(src.length, st), Math.min(src.length, st + n)));
+        for(let i=0;i<fade;i++){ const f = i/fade; dst[i] *= f; dst[n-1-i] *= f; }
+      }
+    }
+    return out;
+  }
+  async function renderFast(clips, segs, caps, plan, W, H, onProgress){
+    if(typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') throw new Error('no WebCodecs');
+    const MB = await getMB();
+    const vcodec = await MB.getFirstEncodableVideoCodec(['avc','vp9','av1','vp8'], {width:W, height:H});
+    if(!vcodec) throw new Error('no video encoder');
+    const used = [...new Set(segs.map(s=>s.ci))];
+    const sinks = {};
+    for(const ci of used){
+      const input = new MB.Input({source: new MB.BlobSource(clips[ci].file), formats: MB.ALL_FORMATS});
+      const vt = await input.getPrimaryVideoTrack();
+      if(!vt || !(await vt.canDecode())) throw new Error('cannot decode clip ' + ci);
+      const sw = vt.displayWidth, sh = vt.displayHeight, k = Math.min(1, Math.max(W/sw, H/sh)*1.12);
+      sinks[ci] = {sink: new MB.CanvasSink(vt, {width: Math.round(sw*k/2)*2, height: Math.round(sh*k/2)*2, fit:'fill'}), w: sw*k, h: sh*k};
+    }
+    const hasAudio = clips.some(c=>c.audio);
+    const acodec = hasAudio ? await MB.getFirstEncodableAudioCodec(vcodec === 'vp8' ? ['opus'] : ['aac','opus'], {numberOfChannels:2, sampleRate:48000}) : null;
+    if(hasAudio && !acodec) throw new Error('no audio encoder');
+    const mp4 = vcodec !== 'vp8';
+    const output = new MB.Output({format: mp4 ? new MB.Mp4OutputFormat({fastStart:'in-memory'}) : new MB.WebMOutputFormat(), target: new MB.BufferTarget()});
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
-    try{ await Promise.all([document.fonts.load('900 40px Montserrat'), document.fonts.load('600 40px Geist')]); }catch(e){}
+    const vsrc = new MB.CanvasSource(c, {codec: vcodec, quality: MB.QUALITY_HIGH, keyFrameInterval: 2});
+    output.addVideoTrack(vsrc, {frameRate: FPS});
+    let asrc = null;
+    if(acodec){ asrc = new MB.AudioBufferSource({codec: acodec, quality: MB.QUALITY_HIGH}); output.addAudioTrack(asrc); }
+    await output.start();
+    try{
+      const total = segs.reduce((a,s)=>a + s.nF, 0); let doneF = 0, lastYield = performance.now();
+      for(const sg of segs){
+        const {sink, w, h} = sinks[sg.ci];
+        if(asrc) await asrc.add(segmentAudio(clips[sg.ci], sg.s, sg.nF/FPS));
+        const ts = Array.from({length: sg.nF}, (_,i) => sg.s + i/FPS);
+        let last = null, i = 0;
+        for await (const wc of sink.canvasesAtTimestamps(ts)){
+          if(wc) last = wc;
+          const t = sg.off + i/FPS;
+          if(last) drawFrame(x, W, H, last.canvas, w, h, t, caps, plan); else { x.fillStyle = '#000'; x.fillRect(0, 0, W, H); }
+          await vsrc.add(t, 1/FPS);
+          i++; doneF++;
+          if(performance.now() - lastYield > 120){ onProgress(doneF/total); await new Promise(r=>setTimeout(r, 0)); lastYield = performance.now(); }
+          if(i >= sg.nF) break;
+        }
+        for(; i < sg.nF; i++, doneF++){ await vsrc.add(sg.off + i/FPS, 1/FPS); }
+      }
+      await output.finalize();
+    }catch(e){ try{ await output.cancel(); }catch(_){} throw e; }
+    const type = mp4 ? 'video/mp4' : 'video/webm';
+    return {blob: new Blob([output.target.buffer], {type}), name: `kerf-edit-${new Date().toISOString().slice(0,10)}.${mp4 ? 'mp4' : 'webm'}`};
+  }
+
+  /* backup render: plays the clips and records the canvas in real time */
+  async function renderRealtime(clips, segs, caps, plan, W, H, onProgress){
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
     const AC = window.AudioContext || window.webkitAudioContext;
-    const ac = new AC();
-    let audioTracks = [];
-    try{ const node = ac.createMediaElementSource(v); const dest = ac.createMediaStreamDestination(); node.connect(dest); audioTracks = dest.stream.getAudioTracks(); }catch(e){ v.muted = true; }
-    const stream = new MediaStream([...c.captureStream(30).getVideoTracks(), ...audioTracks]);
-    const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    const ac = new AC(), dest = ac.createMediaStreamDestination();
+    const vids = {};
+    for(const ci of new Set(segs.map(s=>s.ci))){
+      const v = document.createElement('video'); v.src = clips[ci].url; v.playsInline = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+      document.body.appendChild(v);
+      await new Promise(r=>{ if(v.readyState >= 1) r(); else v.onloadedmetadata = r; });
+      try{ ac.createMediaElementSource(v).connect(dest); }catch(e){}
+      vids[ci] = v;
+    }
+    const stream = new MediaStream([...c.captureStream(FPS).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
     const mime = window.MediaRecorder && types.find(t=>MediaRecorder.isTypeSupported(t));
-    if(!mime){ ac.close(); v.remove(); throw {msg:'This browser cannot export video yet. Try Chrome on a computer.'}; }
+    const cleanup = () => { try{ ac.close(); }catch(e){} Object.values(vids).forEach(v=>v.remove()); };
+    if(!mime){ cleanup(); throw {msg:'This browser cannot export video yet. Try Chrome on a computer.'}; }
     const rec = new MediaRecorder(stream, {mimeType:mime, videoBitsPerSecond: Math.round(Math.min(12e6, Math.max(4e6, W*H*4)))});
     const chunks = []; rec.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
     const stopped = new Promise(r=>{ rec.onstop = r; });
-    const caps = plan.captions !== 'none' ? buildChunks(words, plan.captions) : [];
-    const total = keep.reduce((a,[s,e])=>a + (e - s), 0) || media.duration;
+    const total = segs.reduce((a,s)=>a + s.nF/FPS, 0);
     let doneT = 0, started = false;
-    const nextFrame = f => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(()=>f()) : requestAnimationFrame(()=>f()));
     try{
       await ac.resume();
-      for(const [s,e] of keep){
+      for(const sg of segs){
+        const v = vids[sg.ci], s = sg.s, e = sg.s + sg.nF/FPS;
+        const nextFrame = f => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(()=>f()) : requestAnimationFrame(()=>f()));
         if(Math.abs(v.currentTime - s) > .01){ await new Promise(r=>{ v.onseeked = r; v.currentTime = s; }); }
-        drawFrame(x, v, W, H, s, caps, plan);
+        drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off, caps, plan);
         if(!started){ rec.start(1000); started = true; } else rec.resume();
         try{ await v.play(); }catch(err){ v.muted = true; await v.play(); }
         await new Promise(resolve=>{
           const tick = () => {
             const t = v.currentTime;
-            drawFrame(x, v, W, H, t, caps, plan);
+            drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off + Math.max(0, t - s), caps, plan);
             onProgress(Math.min(1, (doneT + Math.max(0, t - s))/total));
             if(t >= e - .03 || v.ended || v.paused){ resolve(); return; }
             nextFrame(tick);
@@ -1655,11 +1982,9 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         v.pause(); rec.pause(); doneT += e - s;
       }
       rec.resume(); rec.stop(); await stopped;
-    } finally { try{ ac.close(); }catch(e){} v.remove(); }
+    } finally { cleanup(); }
     const type = mime.split(';')[0];
-    const blob = new Blob(chunks, {type});
-    const name = `kerf-edit-${new Date().toISOString().slice(0,10)}.${type === 'video/mp4' ? 'mp4' : 'webm'}`;
-    return {blob, url: URL.createObjectURL(blob), name, w: W, h: H, duration: total};
+    return {blob: new Blob(chunks, {type}), name: `kerf-edit-${new Date().toISOString().slice(0,10)}.${type === 'video/mp4' ? 'mp4' : 'webm'}`};
   }
 
   /* ----- photos: the plan picks the settings, the page applies them ----- */
@@ -1687,6 +2012,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     }
     if(images.length > batch.length) ai.error = `I edited the first ${batch.length} photos. Send the rest in your next message.`;
   }
+
   async function loadImage(file){
     if('createImageBitmap' in window){ try{ return await createImageBitmap(file, {imageOrientation:'from-image'}); }catch(e){} }
     return await new Promise((ok, bad)=>{ const im = new Image(); im.onload = ()=>ok(im); im.onerror = bad; im.src = URL.createObjectURL(file); });
