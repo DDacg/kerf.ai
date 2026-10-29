@@ -1459,7 +1459,13 @@ One edits entry per photo, same order. Keep it natural unless they ask for somet
     try{ sessionStorage.setItem('kerf-after-login', location.hash === '#app' ? 'app' : ''); }catch(err){}
     const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: backTo(), shouldCreateUser:true}});
     btn.disabled = false; btn.textContent = 'Continue with email';
-    if(error){ authErr(/rate|seconds/i.test(error.message) ? 'Too many emails just now. Wait a minute and try again.' : 'The email could not be sent. Check the address and try again.'); return; }
+    if(error){
+      const code = error.code || '';
+      authErr(code === 'over_email_send_rate_limit' ? 'We hit our limit of sign-in emails for this hour. Try again later, or continue with Google.'
+        : /seconds|over_request_rate_limit/i.test(code + ' ' + error.message) ? 'An email was just sent. Wait about a minute before asking for another.'
+        : 'The email could not be sent. Check the address and try again.');
+      return;
+    }
     authEmail = email; $('sentTo').textContent = email;
     $('authStep1').hidden = true; $('authStep2').hidden = false; setTimeout(()=>$('authCode').focus(), 40);
   });
