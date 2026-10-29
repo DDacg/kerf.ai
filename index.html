@@ -422,6 +422,10 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 .sent{font-size:14px;color:var(--muted);margin:0}
 .link-btn{border:0;background:none;color:var(--accent-2);font-size:14px;cursor:pointer;padding:6px}
 .auth-fine{font-size:12px !important;color:var(--faint) !important}
+.auth-fine a{color:var(--muted)}
+.foot-links{display:flex;gap:18px;flex-wrap:wrap}
+.foot-links a{color:var(--faint);text-decoration:none}
+.foot-links a:hover{color:var(--ink)}
 .avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 
 /* ---------- reveal ---------- */
@@ -711,7 +715,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     <div class="ctas" style="justify-content:center;margin:0"><a class="btn primary" href="#pricing">See plans <svg><use href="#arrow"/></svg></a><a class="btn" href="#app">Open the editor</a></div>
   </div>
 </main>
-<footer><span>© 2026 Kerf AI</span><span class="mono">VIDEO · PHOTO · CAPTIONS · MOTION</span><button class="dev-link" type="button" data-dev-open aria-label="Developer mode">DEV</button></footer>
+<footer><span>© 2026 Kerf AI</span><span class="foot-links"><a href="/terms" target="_blank" rel="noopener">Terms of Service</a><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span><span class="mono">VIDEO · PHOTO · CAPTIONS · MOTION</span><button class="dev-link" type="button" data-dev-open aria-label="Developer mode">DEV</button></footer>
 </div>
 
 <!-- ================= EDITOR (#app) ================= -->
@@ -834,7 +838,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       <button class="link-btn" type="button" id="authBack">Use a different email</button>
     </div>
     <div class="msg-err" id="authErr" role="alert"></div>
-    <p class="auth-fine">By continuing you agree to the Kerf AI Terms and Privacy Policy.</p>
+    <p class="auth-fine">By continuing you agree to the Kerf AI <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>
   </div>
 </div>
 
