@@ -1019,18 +1019,30 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   $('sendToEditor').addEventListener('click', ()=>{ pending = draft; });
 
   /* ---------- pricing ---------- */
+  let yearly = false;
   function setBill(y){
+    yearly = y;
     $('bill-m').setAttribute('aria-selected', !y); $('bill-y').setAttribute('aria-selected', y);
     document.querySelectorAll('.price[data-m]').forEach(p=>{ p.firstChild.nodeValue = '$' + (y ? p.dataset.y : p.dataset.m); });
     document.querySelectorAll('.billed').forEach(b=>{ b.textContent = y ? b.dataset.y : ''; });
   }
   $('bill-m').addEventListener('click', ()=>setBill(false));
   $('bill-y').addEventListener('click', ()=>setBill(true));
-  // Checkout is not connected yet: plan and pack buttons explain that instead of pretending to charge.
+  /* Stripe checkout: paste each payment link URL here once it exists in Stripe.
+     The site adds the signed-in user's ID so the payment server knows whose account gets the credits. */
+  const PAY = {
+    starter_month:'', starter_year:'', creator_month:'', creator_year:'', studio_month:'', studio_year:'',
+    pack_100:'', pack_300:'', pack_1000:''
+  };
   document.querySelectorAll('[data-plan],[data-pack]').forEach(b=>b.addEventListener('click', ()=>{
-    const what = b.dataset.plan ? `the ${b.dataset.plan} plan` : `${Number(b.dataset.pack).toLocaleString('en-US')} credits`;
-    $('checkoutNote').textContent = `Checkout opens soon. You picked ${what}.`;
-    if(b.dataset.plan){ b.textContent = 'Checkout opens soon'; setTimeout(()=>{ b.textContent = 'Choose ' + b.dataset.plan; }, 2200); }
+    const key = b.dataset.plan ? `${b.dataset.plan.toLowerCase()}_${yearly ? 'year' : 'month'}` : `pack_${b.dataset.pack}`;
+    const url = PAY[key];
+    if(!user){ $('checkoutNote').textContent = 'Sign in first so the credits go to your account.'; toast('Sign in first so the credits go to your account'); openAuth(); return; }
+    if(!url){ $('checkoutNote').textContent = 'Checkout opens soon.'; toast('Checkout opens soon'); return; }
+    const u = new URL(url);
+    u.searchParams.set('client_reference_id', user.id);
+    if(user.email) u.searchParams.set('prefilled_email', user.email);
+    location.href = u.toString();
   }));
 
   /* ---------- editor ---------- */
@@ -1495,6 +1507,13 @@ One edits entry per photo, same order. Keep it natural unless they ask for somet
     user = null; profile = null;
     myChats.length = 0; current = null;
     applyAccount(); render(); toast('Signed out');
+  }
+  // Back from Stripe checkout: the payment server adds credits within a few seconds.
+  if(new URLSearchParams(location.search).has('paid')){
+    history.replaceState(null, '', location.pathname + location.hash);
+    setTimeout(()=>toast('Payment received. Your credits are on the way.'), 900);
+    setTimeout(()=>loadProfile(), 4000);
+    setTimeout(()=>loadProfile(), 10000);
   }
   if(sb){
     sb.auth.onAuthStateChange((event, session)=>{
