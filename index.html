@@ -861,6 +861,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 
 <div class="toast" id="toast" role="status" hidden></div>
 
+<script>/* 'kerf-ai-virid.vercel.app.' (with a trailing dot) breaks sign-in: move to the normal address */ if(location.hostname.endsWith('.')) location.replace(location.href.replace(location.hostname, location.hostname.replace(/\.+$/, '')));</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function(){
@@ -2331,7 +2332,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   const sb = (!PREVIEW && window.supabase?.createClient) ? window.supabase.createClient(SB_URL, SB_KEY, {auth:{flowType:'pkce', persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}}) : null;
   const authModal = $('authModal');
   const authErr = t => { $('authErr').textContent = t || ''; };
-  const backTo = () => location.origin + location.pathname;
+  const backTo = () => location.protocol + '//' + location.host.replace(/\.(?=:|$)/, '') + location.pathname; // never send people back to 'site.app.' (trailing dot)
   let authEmail = '';
   function openAuth(){
     authModal.hidden = false; $('authStep1').hidden = false; $('authStep2').hidden = true;
