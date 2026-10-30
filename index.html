@@ -366,6 +366,12 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
 .opt-btn:hover,.opt-btn[aria-expanded="true"]{color:var(--ink);background:rgba(255,255,255,.09)}
 .opt-btn b{font:600 11px var(--f-mono);color:var(--accent-ink);background:var(--accent-2);border-radius:999px;padding:1px 7px}
 .opt-btn b:empty{display:none}
+.mode-sw{display:inline-flex;padding:3px;gap:2px;border:1px solid var(--stroke);border-radius:999px;background:rgba(255,255,255,.04)}
+.mode-sw button{border:0;background:none;color:var(--muted);font:500 12.5px var(--f-display);padding:5px 11px;border-radius:999px;cursor:pointer;transition:background .2s,color .2s}
+.mode-sw button:hover{color:var(--ink)}
+.mode-sw button[aria-pressed="true"]{background:rgba(255,255,255,.13);color:var(--ink)}
+.mode-sw button[data-mode="pro"][aria-pressed="true"]{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink);font-weight:600}
+@media (max-width:420px){.opt-btn{padding:8px 10px}.mode-sw button{padding:5px 9px}}
 .cbox .send{width:38px;height:38px;border-radius:12px;cursor:pointer}
 .cbox .send:disabled{opacity:.35;cursor:default}
 .opt-pop{position:absolute;left:8px;bottom:calc(100% + 10px);width:min(360px, calc(100vw - 40px));padding:16px;z-index:5;border-radius:20px;background:rgba(14,16,26,.94)}
@@ -781,6 +787,10 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
             <div class="cbar">
               <button class="ico" type="button" id="attachBtn" aria-label="Add photos or videos" title="Add photos or videos"><svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
               <button class="opt-btn" type="button" id="optBtn" aria-expanded="false" aria-controls="optPop"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h7M12 4h2M2 12h2M7 12h7M9 2.5v3M5 10.5v3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Options <b id="optCount"></b></button>
+              <div class="mode-sw" id="modeSw" role="group" aria-label="Edit mode">
+                <button type="button" data-mode="quick" aria-pressed="true" title="Fast edits">Quick</button>
+                <button type="button" data-mode="pro" aria-pressed="false" title="Slower, better: exact word timing, smart zooms and highlights, filler words cut, a hook title and cleaner audio. 2× credits.">Pro</button>
+              </div>
               <span class="grow"></span>
               <button class="send" type="submit" id="sendBtn" aria-label="Send" disabled><svg><use href="#up"/></svg></button>
             </div>
@@ -1118,12 +1128,13 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     let body = m.thinking ? `<span class="thinking"><span class="spark"></span>${esc(m.thinking)}</span>` : fmt(m.text || '');
     if(m.error) body += `<p class="err">${esc(m.error)}</p>`;
     if(m.steps) body += `<ul class="steps-list">${m.steps.map(s=>typeof s === 'string' ? `<li class="done"><span class="st"></span>${esc(s)}<span class="tm"></span></li>` : `<li class="${s.s}"><span class="st"></span>${esc(s.t)}<span class="tm">${esc(s.tm || '')}</span></li>`).join('')}</ul>`;
-    if(m.outVideo){ const o = m.outVideo, tall = o.h > o.w;
+    if(m.outVideo && !m.outVideo.url) body += `<p class="err">This video was saved on another device and is too big for your account backup, so it can't be shown here.</p>`;
+    else if(m.outVideo){ const o = m.outVideo, tall = o.h > o.w;
       body += `<div class="out-video ${tall ? 'tall' : ''}" style="aspect-ratio:${o.w}/${o.h}"><video src="${o.url}" controls playsinline preload="metadata"></video></div><div class="photo-bar"><span>${esc(o.meta)}</span><button class="pill-btn" type="button" data-dl="${o.key}">Download</button></div>`; }
     if(m.video) body += m.wide
       ? `<div class="wide" style="margin-top:12px;max-width:560px"><video data-asset="${m.video}" autoplay muted loop playsinline preload="metadata"></video></div><div class="photo-bar" style="margin-top:8px"><span>${esc(m.meta)}</span></div>`
       : `<div class="result"><div class="mini-phone"><video data-asset="${m.video}" autoplay muted loop playsinline preload="metadata"></video></div><div class="result-copy"><b>Ready to download</b><span>${esc(m.meta)}</span></div></div>`;
-    if(m.photos && m.photos.length) body += `<div class="photo-results">${m.photos.map((p,i)=>`
+    if(m.photos && m.photos.length) body += `<div class="photo-results">${m.photos.filter(p=>p.after).map((p,i)=>`
       <div class="cmp" style="aspect-ratio:${p.w}/${p.h}">
         <img src="${p.after}" alt="Edited photo ${i+1}"><img class="before" src="${p.before}" alt="">
         <span class="line"></span><span class="tag l">BEFORE</span><span class="tag r">AFTER</span>
@@ -1145,9 +1156,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     if(c && c.remoteId && c.msgs === null){
       c.msgs = [{role:'ai', thinking:'Loading your chat...'}]; render();
       const {data, error} = await sb.from('messages').select('role,content,attachments,created_at').eq('chat_id', c.remoteId).order('created_at');
-      c.msgs = error ? [{role:'ai', error:'This chat could not be loaded. Try again.'}] : (data || []).map(m => m.role === 'user'
-        ? {role:'user', text:m.content, files:(m.attachments || []).map(a=>a.name)}
-        : {role:'ai', text:m.content});
+      c.msgs = error ? [{role:'ai', error:'This chat could not be loaded. Try again.'}] : await restoreChat(c, data || []);
       c.turns = (data || []).map(m=>({role:m.role, content:m.content})).filter(t=>t.content);
       if(error) c.msgs.__failed = true;
       if(current === c) render();
@@ -1256,7 +1265,90 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   const refreshSoon = (chat) => { const n = Date.now(); if(n - lastRefresh > 200 && current === chat){ lastRefresh = n; refreshLast(); } };
   const FPS = 30;
 
-  async function askKerf(turns, images){
+  /* ----- Quick / Pro switch (remembered on this device) ----- */
+  let editMode = 'quick';
+  try{ editMode = localStorage.getItem('kerf.mode') === 'pro' ? 'pro' : 'quick'; }catch(e){}
+  function setEditMode(m){
+    editMode = m;
+    $('modeSw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+    try{ localStorage.setItem('kerf.mode', m); }catch(e){}
+  }
+  $('modeSw').addEventListener('click', e=>{
+    const b = e.target.closest('[data-mode]'); if(!b || b.dataset.mode === editMode) return;
+    setEditMode(b.dataset.mode);
+    toast(editMode === 'pro' ? 'Pro: slower, but better captions and smarter edits. Uses 2× credits.' : 'Quick: fast edits');
+  });
+  setEditMode(editMode);
+
+  /* ----- saving: results stay in this browser, and in the account when they fit ----- */
+  const store = (() => {
+    let dbp = null, asked = false;
+    const open = () => (dbp ||= new Promise((ok, bad) => { const r = indexedDB.open('kerf-files', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); }));
+    const run = async (m, fn) => { const db = await open(); return new Promise((ok, bad) => { const t = db.transaction('files', m), req = fn(t.objectStore('files')); t.oncomplete = () => ok(req.result); t.onerror = t.onabort = () => bad(t.error); }); };
+    return {
+      async put(id, blob){ try{ if(!asked){ asked = true; navigator.storage?.persist?.().catch(()=>{}); } await run('readwrite', s => s.put(blob, id)); return true; }catch(err){ return false; } },
+      async get(id){ try{ return (await run('readonly', s => s.get(id))) || null; }catch(err){ return null; } }
+    };
+  })();
+  const newId = p => p + '-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+  const fileIds = new WeakMap(), filesById = new Map();
+  async function cloudSave(id, blob, ext){
+    if(!sb || !user || !blob || blob.size > 50*1024*1024) return null;
+    const path = `${user.id}/${id}.${ext}`;
+    try{ const {error} = await sb.storage.from('edits').upload(path, blob, {contentType: blob.type || 'application/octet-stream'}); return error ? null : path; }catch(err){ return null; }
+  }
+  async function cloudUrls(paths){
+    if(!sb || !paths.length) return {};
+    try{ const {data} = await sb.storage.from('edits').createSignedUrls(paths, 60*60*6); const m = {}; (data || []).forEach(d=>{ if(d.signedUrl) m[d.path] = d.signedUrl; }); return m; }catch(err){ return {}; }
+  }
+  // rebuild a saved chat: files come from this browser first, then from the account
+  async function restoreChat(c, rows){
+    const need = [], msgs = [];
+    let edit = null;
+    const fileFrom = async (id, name) => {
+      if(!id) return null;
+      if(filesById.has(id)) return filesById.get(id);
+      const b = await store.get(id); if(!b) return null;
+      const f = b instanceof File ? b : new File([b], name || 'clip', {type: b.type});
+      fileIds.set(f, id); filesById.set(id, f); return f;
+    };
+    for(const r of rows){
+      const at = Array.isArray(r.attachments) ? r.attachments : [];
+      if(r.role === 'user'){
+        const m = {role:'user', text:String(r.content || '').trim(), atts:[], files:[]};
+        for(const a of at){ const f = await fileFrom(a.id, a.name); if(f) m.atts.push({kind:a.kind, name:a.name, url:URL.createObjectURL(f), file:f}); else m.files.push(a.name); }
+        msgs.push(m);
+      } else {
+        const m = {role:'ai', text:String(r.content || '').replace(/\n\[(edited video|\d+ edited photo\(s\))\]/g, '').trim()};
+        for(const a of at){
+          if(a.kind === 'video'){
+            const b = await store.get(a.id);
+            m.outVideo = {w:a.w, h:a.h, key:a.id, meta:a.meta, url: b ? URL.createObjectURL(b) : null};
+            DL[a.id] = b ? {blob:b, name:a.name} : {path:a.path, name:a.name};
+            if(!b && a.path) need.push([m.outVideo, 'url', a.path]);
+          } else if(a.kind === 'photo'){
+            const [b1, b2] = await Promise.all([store.get(a.id), store.get(a.id + '-b')]);
+            const p = {w:a.w, h:a.h, key:a.id, note:a.note || '', after: b1 ? URL.createObjectURL(b1) : null, before: b2 ? URL.createObjectURL(b2) : null};
+            DL[a.id] = b1 ? {blob:b1, name:'kerf-photo.jpg'} : {path:a.path, name:'kerf-photo.jpg'};
+            if(!b1 && a.path) need.push([p, 'after', a.path]);
+            if(!b2 && a.bpath) need.push([p, 'before', a.bpath]);
+            (m.photos ||= []).push(p);
+          } else if(a.kind === 'edit'){
+            const srcs = Array.isArray(a.sources) ? a.sources : [];
+            const files = []; for(const s of srcs){ const f = await fileFrom(s.id, s.name); if(f) files.push(f); }
+            edit = srcs.length && files.length === srcs.length ? {files, plan: normVideo(a.plan, DEFAULT_PLAN)} : null;
+          }
+        }
+        msgs.push(m);
+      }
+    }
+    if(need.length){ const urls = await cloudUrls([...new Set(need.map(n=>n[2]))]); need.forEach(([o, k, p]) => { o[k] = urls[p] || null; }); }
+    c.edit = edit;
+    return msgs;
+  }
+
+  async function askKerf(turns, images, mode){ return callKerf({messages: turns, images, mode}); }
+  async function callKerf(payload){
     if(!sb || !user) return null;
     try{
       const {data:{session}} = await sb.auth.getSession();
@@ -1264,7 +1356,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       const r = await fetch(SB_URL + '/functions/v1/kerf-chat', {
         method:'POST',
         headers:{'Content-Type':'application/json', Authorization:'Bearer ' + session.access_token, apikey: SB_KEY},
-        body: JSON.stringify({messages: turns, images})
+        body: JSON.stringify(payload)
       });
       if(!r.ok) return null;
       return await r.json();
@@ -1278,7 +1370,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   const COLOR_WORDS = {yellow:'#FFD43B', amarelo:'#FFD43B', amarela:'#FFD43B', green:'#3BE37A', verde:'#3BE37A', red:'#FF4D5E', vermelho:'#FF4D5E', vermelha:'#FF4D5E', blue:'#4DA3FF', azul:'#4DA3FF', pink:'#FF6FCF', rosa:'#FF6FCF', purple:'#A78BFA', roxo:'#A78BFA', roxa:'#A78BFA', orange:'#FF9F43', laranja:'#FF9F43', cyan:'#30E3C8', teal:'#30E3C8', white:'#FFFFFF', branco:'#FFFFFF', branca:'#FFFFFF'};
   const FORMATS = ['original','9:16','1:1','16:9','4:5'];
   const LOOK_NAMES = ['none','warm','cool','bw','vivid','cinematic'];
-  const DEFAULT_PLAN = {captions:'none', caption_position:'bottom', caption_color:'#FFD43B', cut_pauses:false, zooms:false, format:'original', look:'none', order:null, language:'auto', translate:false};
+  const DEFAULT_PLAN = {zoom_off:false, captions:'none', caption_position:'bottom', caption_color:'#FFD43B', cut_pauses:false, zooms:false, format:'original', look:'none', order:null, language:'auto', translate:false};
   function normVideo(v, base){
     v = v || {}; base = base || DEFAULT_PLAN;
     const pick = (val, list, d) => list.includes(val) ? val : d;
@@ -1293,7 +1385,8 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       look: pick(v.look, LOOK_NAMES, base.look),
       order: Array.isArray(v.order) ? v.order.map(Number).filter(Number.isInteger) : base.order,
       language: typeof v.language === 'string' ? v.language : base.language,
-      translate: typeof v.translate === 'boolean' ? v.translate : base.translate
+      translate: typeof v.translate === 'boolean' ? v.translate : base.translate,
+      zoom_off: typeof v.zoom_off === 'boolean' ? v.zoom_off : !!base.zoom_off
     };
   }
   const isPT = t => /\b(obrigad[oa]|valeu|olá|ola|oi|beleza|ficou|legal|muito|legenda|legendas|coloca|bota|corta|corte|junta|juntar|vídeo|video da|pausa|pausas|quero|deixa|faz|faça|não|nao|com|sem|mais|muda|troca|esse|essa|isso|por favor|pfv)\b/i.test(t);
@@ -1336,7 +1429,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     // pauses and zooms
     if(neg('pause','pausa','cut','corta','silence')) set('cut_pauses', false);
     else if(has('pause','silence','silênc','silenc','dead air','pausa','corta','corte','tighten','jump cut','jumpcut','respira','breath','trim the gaps')) set('cut_pauses', true);
-    if(neg('zoom')) set('zooms', false); else if(has('zoom')) set('zooms', true);
+    if(neg('zoom')){ set('zooms', false); p.zoom_off = true; } else if(has('zoom')){ set('zooms', true); p.zoom_off = false; }
     // format
     if(has('9:16','vertical',' short ','shorts','reels','story','stories','tiktok format','formato tiktok','celular')) set('format','9:16');
     else if(has('16:9','horizontal','youtube','widescreen','landscape','deitado')) set('format','16:9');
@@ -1416,6 +1509,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     if(!canUse()){ showLock(); return; }
     const full = [text, opts.length ? `Options: ${opts.join(', ')}.` : ''].filter(Boolean).join('\n');
     const myAtts = atts.map(a=>({kind:a.kind, name:a.name, url:a.url, file:a.file}));
+    const m = editMode, mult = m === 'pro' ? 2 : 1;
     const videos = myAtts.filter(a=>a.kind==='video'), images = myAtts.filter(a=>a.kind==='image');
     if(!current || current.example){
       current = {id:'c'+Date.now(), title:(text || (myAtts[0]?.name) || 'New edit').slice(0,48), msgs:[], turns:[]};
@@ -1427,14 +1521,15 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const totalDur = durs.reduce((a,b)=>a+b, 0);
     if(totalDur > 600){ toast('For now, videos can add up to 10 minutes per edit.'); return; }
     const admin = !!profile?.is_admin;
-    const maybeCost = costFor(totalDur, images.length, !!prevEdit && EDIT_WORDS.test(full));
+    const maybeCost = costFor(totalDur, images.length, !!prevEdit && EDIT_WORDS.test(full)) * mult;
     if(maybeCost && !admin && (profile?.credits ?? 0) < maybeCost){
       toast(`This edit needs ${maybeCost} credits. You have ${profile?.credits ?? 0}.`);
       showLock(); return;
     }
     chat.msgs.push({role:'user', text:full, atts:myAtts});
-    saveMessage(chat, 'user', full, myAtts.map(a=>({name:a.name, kind:a.kind})));
-    const ai = {role:'ai', thinking: images.length ? 'Looking at your photos...' : 'Thinking...'};
+    for(const a of myAtts){ a.id = newId('src'); fileIds.set(a.file, a.id); filesById.set(a.id, a.file); store.put(a.id, a.file); }
+    saveMessage(chat, 'user', full, myAtts.map(a=>({name:a.name, kind:a.kind, id:a.id})));
+    const ai = {role:'ai', mode:m, thinking: images.length ? 'Looking at your photos...' : m === 'pro' ? 'Thinking it through...' : 'Thinking...'};
     chat.msgs.push(ai);
     msgBox.value = ''; atts = []; drawAtts(); grow();
     $('optChecks').querySelectorAll('input').forEach(i=>i.checked = false); $('optCount').textContent = ''; closeOpt();
@@ -1448,7 +1543,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       else if(chat.edit) note = `\n[No new files. The previous video edit in this chat used ${chat.edit.files.length} clip(s) with settings ${JSON.stringify(chat.edit.plan)}]`;
       chat.turns.push({role:'user', content: full + note});
       const imgs = images.length ? await Promise.all(images.slice(0,4).map(a=>smallBase64(a.file).catch(()=>null))).then(a=>a.filter(Boolean)) : undefined;
-      const res = await askKerf(chat.turns.slice(-12), imgs);
+      const res = await askKerf(chat.turns.slice(-12), imgs, m);
       if(videos.length || prevEdit){
         const files = videos.length ? videos.map(v=>v.file) : prevEdit.files;
         const base = videos.length ? null : prevEdit.plan;
@@ -1465,12 +1560,12 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
           const thanks = /obrigad|valeu|thank|thx|vlw|perfect|perfeito|amei|loved it|great/i.test(full);
           ai.text = res?.reply || (thanks ? (pt ? 'De nada! Se quiser mudar mais alguma coisa no vídeo, é só falar.' : 'You are welcome! Tell me if you want to change anything else.') : pt ? 'Me diz o que mudar no vídeo, tipo “legenda em negrito amarela” ou “tira os zooms”.' : 'Tell me what to change in the video, like “bold yellow captions” or “remove the zooms”.');
         } else {
-          const cost = costFor(totalDur, 0, !videos.length);
+          const cost = costFor(totalDur, 0, !videos.length) * mult;
           if(cost && !admin && (profile?.credits ?? 0) < cost) throw {msg:`This edit needs ${cost} credits. You have ${profile?.credits ?? 0}.`};
           ai.thinking = null; ai.text = res?.reply || describePlan(plan, base, files.length, pt);
           refreshSoon(chat);
-          await videoTurn(chat, ai, files, plan);
-          chat.edit = {files, plan};
+          const used = await videoTurn(chat, ai, files, plan, m, full);
+          chat.edit = {files, plan: used};
           charged = cost;
         }
       } else if(images.length){
@@ -1478,7 +1573,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         ai.thinking = 'Editing your photos...'; refreshSoon(chat);
         await photoTurn(chat, ai, images, edits);
         ai.text = res?.reply || 'Here are your edited photos. Drag the slider to compare.';
-        charged = costFor(0, images.length, false);
+        charged = costFor(0, images.length, false) * mult;
       } else {
         ai.text = res?.reply || (isPT(full)
           ? 'Me manda um ou mais vídeos (ou fotos) e diz o que quer. Exemplos: “junta esses clipes e coloca legenda em negrito”, “corta as pausas”, “legenda de uma palavra em verde”, “deixa vertical com cor cinematográfica”.'
@@ -1490,7 +1585,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         const {data:ok} = await sb.rpc('spend_credits', {p_amount: charged});
         if(ok && profile){ profile.credits -= charged; applyAccount(); }
       }
-      saveMessage(chat, 'assistant', ai.text + (ai.photos?.length ? `\n[${ai.photos.length} edited photo(s)]` : '') + (ai.outVideo ? '\n[edited video]' : ''), []);
+      saveMessage(chat, 'assistant', ai.text + (ai.photos?.length ? `\n[${ai.photos.length} edited photo(s)]` : '') + (ai.outVideo ? '\n[edited video]' : ''), ai.saveAtts || []);
     } catch(e){
       console.error(e);
       ai.thinking = null;
@@ -1521,7 +1616,8 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   const fmtDur = d => { d = Math.max(0, Math.round(d)); return Math.floor(d/60) + ':' + String(d%60).padStart(2,'0'); };
   const clipCache = new WeakMap(); // file -> decoded clip (audio, transcript), so follow-up edits are fast
 
-  async function videoTurn(chat, ai, files, plan){
+  async function videoTurn(chat, ai, files, plan, mode, request){
+    const pro = mode === 'pro';
     const steps = ai.steps = [];
     const step = t => { const s = {t, s:'run', tm:''}; steps.push(s); lastRefresh = 0; refreshSoon(chat); return s; };
     const done = (s, tm) => { s.s = 'done'; if(tm != null) s.tm = tm; lastRefresh = 0; refreshSoon(chat); };
@@ -1532,54 +1628,143 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     done(s, fmtDur(clips.reduce((a,c)=>a + c.duration, 0)));
     let order = [...clips.keys()];
     if(plan.order && plan.order.length === n && new Set(plan.order).size === n && plan.order.every(i=>i >= 0 && i < n)) order = plan.order;
-    if(plan.captions !== 'none'){
-      const need = clips.filter(c => c.pcm && !c.words?.[wordsKey(plan)]);
-      if(clips.every(c => !c.pcm)){ ai.error = 'These videos have no sound I can read, so I skipped the captions.'; plan = {...plan, captions:'none'}; }
-      else if(need.length){
-        s = step('Loading the caption engine (first time only)');
-        const ok = await warmASR(p => { s.tm = Math.round(p) + '%'; refreshSoon(chat); });
-        done(s, ok ? '' : 'slow mode');
-        for(let i=0;i<need.length;i++){
-          s = step(need.length > 1 ? `Listening to clip ${clips.indexOf(need[i]) + 1} of ${n}` : 'Listening and writing captions');
-          const words = await transcribe(need[i].pcm, plan, p => { s.tm = p; refreshSoon(chat); });
-          (need[i].words ||= {})[wordsKey(plan)] = words;
+    const key = wordsKey(plan) + (pro ? ':pro' : '');
+    if((plan.captions !== 'none' || pro) && clips.some(c=>c.pcm)){
+      const need = clips.filter(c => c.pcm && !c.words?.[key]);
+      if(need.length){
+        let kind = pro ? 'pro' : 'quick';
+        s = step(pro ? 'Loading the Pro caption engine (first time only, a few minutes)' : 'Loading the caption engine (first time only)');
+        const prog = p => { s.tm = Math.round(p) + '%'; refreshSoon(chat); };
+        try{ await warmASR(kind, prog); }
+        catch(err){ if(!pro) throw err; kind = 'quick'; s.t = 'Pro captions unavailable on this device, using standard captions'; await warmASR('quick', prog); }
+        done(s, '');
+        for(const c of need){
+          s = step(need.length > 1 ? `Listening to clip ${clips.indexOf(c) + 1} of ${n}` : pro ? 'Listening carefully, word by word' : 'Listening and writing captions');
+          const tick = p => { s.tm = p; refreshSoon(chat); };
+          let words, exact = kind === 'pro';
+          try{ words = await transcribe(kind, c.pcm, plan, tick); }
+          catch(err){ if(kind !== 'pro') throw err; console.warn('pro captions failed, using standard', err); await warmASR('quick', ()=>{}); words = await transcribe('quick', c.pcm, plan, tick); exact = false; }
+          (c.words ||= {})[key] = words; (c.exact ||= {})[key] = exact;
           done(s, words.length + ' words');
         }
       }
+    } else if(plan.captions !== 'none'){ ai.error = 'These videos have no sound I can read, so I skipped the captions.'; plan = {...plan, captions:'none'}; }
+    // Pro: an editor pass over the transcript picks zooms, highlighted words, fillers to cut and a hook title
+    let dir = null;
+    if(pro){
+      const list = [];
+      order.forEach(ci => (clips[ci].words?.[key] || []).forEach((w, wi) => list.push({ci, wi, w})));
+      if(list.length){
+        s = step('Planning the edit like a pro editor');
+        dir = await direct(request, plan, list, clips, key);
+        done(s, [`${dir.zooms.size} zooms`, `${dir.emph.size} highlights`, dir.cut.size ? `${dir.cut.size} fillers cut` : '', dir.hook ? 'hook title' : ''].filter(Boolean).join(' · '));
+      }
     }
-    if(plan.cut_pauses && clips.some(c=>c.pcm)){
-      s = step('Cutting pauses');
+    const cutting = plan.cut_pauses || (dir && dir.cut.size);
+    if(cutting){
+      s = step(plan.cut_pauses ? 'Cutting pauses' : 'Cutting filler words');
       let cut = 0;
-      for(const c of clips){ c.keep = c.pcm ? findSpeech(c.pcm, c.duration) : [[0, c.duration]]; cut += c.duration - c.keep.reduce((a,[x,y])=>a+(y-x),0); }
-      done(s, cut > .05 ? cut.toFixed(1) + ' s removed' : 'no long pauses');
+      for(const [ci, c] of clips.entries()){
+        let keep = plan.cut_pauses && c.pcm ? findSpeech(c.pcm, c.duration, pro) : [[0, c.duration]];
+        if(dir && dir.cut.size){
+          const cuts = (c.words?.[key] || []).map((w, wi) => dir.cut.has(ci + ':' + wi) ? [w.start - .03, w.end + .03] : null).filter(Boolean);
+          keep = subtractRanges(keep, cuts);
+        }
+        c.keep = keep.length ? keep : [[0, c.duration]];
+        cut += c.duration - c.keep.reduce((a,[x,y])=>a+(y-x),0);
+      }
+      done(s, cut > .05 ? cut.toFixed(1) + ' s removed' : 'nothing to cut');
     } else clips.forEach(c => c.keep = [[0, c.duration]]);
     // timeline: each kept piece of each clip, in order, snapped to whole frames
     const segs = []; let off = 0;
     for(const ci of order) for(const [a,b] of clips[ci].keep){
       const nF = Math.max(1, Math.round((b - a)*FPS)); segs.push({ci, s:a, nF, off}); off += nF/FPS;
     }
-    const words = [];
-    if(plan.captions !== 'none') for(const sg of segs){
-      const len = sg.nF/FPS, list = clips[sg.ci].words?.[wordsKey(plan)] || [];
-      for(const w of list) if(w.start >= sg.s - .05 && w.start < sg.s + len - .02)
-        words.push({text:w.text, start: sg.off + Math.max(0, w.start - sg.s), end: sg.off + Math.min(len, w.end - sg.s)});
+    const words = [], zoomAt = [];
+    for(const sg of segs){
+      const len = sg.nF/FPS, list = clips[sg.ci].words?.[key] || [];
+      list.forEach((w, wi) => {
+        if(!(w.start >= sg.s - .05 && w.start < sg.s + len - .02)) return;
+        const id = sg.ci + ':' + wi;
+        if(dir && dir.cut.has(id)) return;
+        const ow = {text:w.text, start: sg.off + Math.max(0, w.start - sg.s), end: sg.off + Math.min(len, w.end - sg.s), emph: !!(dir && dir.emph.has(id))};
+        words.push(ow);
+        if(dir && dir.zooms.has(id)) zoomAt.push({t: ow.start, e: ow.start + 1.4});
+      });
     }
     const caps = plan.captions !== 'none' ? buildChunks(words, plan.captions) : [];
-    const [W, H] = outSize(plan, clips[order[0]]);
+    const zoomOff = (plan.zoom_off && !/zoom/i.test(request || '')) || /(no|sem|without|remove|tira|stop|dont)\s+(the\s+|os\s+|o\s+)?zooms?/i.test(request || '');
+    plan = {...plan, zoom_off: zoomOff};
+    const fx = {pro, zoomAt: zoomOff ? [] : zoomAt, hook: dir && dir.hook ? {text: dir.hook, until: Math.min(2.8, off)} : null, gain: pro ? audioGain(clips, segs) : 1};
+    const [W, H] = outSize(plan, clips[order[0]], pro);
     await loadCaptionFonts();
-    s = step(n > 1 ? `Joining ${n} clips and rendering` : 'Rendering your video');
+    s = step(n > 1 ? `Joining ${n} clips and rendering` : pro ? 'Rendering in high quality' : 'Rendering your video');
     const prog = p => { s.tm = Math.round(p*100) + '%'; refreshSoon(chat); };
     let out;
-    try{ out = await renderFast(clips, segs, caps, plan, W, H, prog); }
-    catch(e){
-      console.warn('fast render unavailable, using real-time render', e);
+    try{ out = await renderFast(clips, segs, caps, plan, W, H, prog, fx); }
+    catch(err){
+      console.warn('fast render unavailable, using real-time render', err);
       s.t = (n > 1 ? `Joining ${n} clips` : 'Rendering') + ' in real time (keep this tab open)'; s.tm = '';
-      out = await renderRealtime(clips, segs, caps, plan, W, H, prog);
+      out = await renderRealtime(clips, segs, caps, plan, W, H, prog, fx);
     }
     done(s, '100%');
-    const key = 'v' + Date.now();
-    DL[key] = {blob: out.blob, name: out.name};
-    ai.outVideo = {url: URL.createObjectURL(out.blob), w: W, h: H, key, meta: `${fmtDur(off)} · ${W}×${H} · ${out.name.split('.').pop().toUpperCase()}`};
+    const id = newId('out'), ext = out.name.split('.').pop();
+    const meta = `${fmtDur(off)} · ${W}×${H} · ${ext.toUpperCase()}${pro ? ' · PRO' : ''}`;
+    DL[id] = {blob: out.blob, name: out.name};
+    ai.outVideo = {url: URL.createObjectURL(out.blob), w: W, h: H, key: id, meta};
+    s = step('Saving to your edits');
+    await store.put(id, out.blob);
+    const path = await cloudSave(id, out.blob, ext);
+    done(s, path ? 'saved to your account' : 'saved on this device');
+    ai.saveAtts = [
+      {kind:'video', id, path, w: W, h: H, meta, name: out.name},
+      {kind:'edit', mode, plan, sources: files.map(f=>({id: fileIds.get(f), name: f.name}))}
+    ];
+    return plan;
+  }
+  function subtractRanges(ranges, cuts){
+    let out = ranges;
+    for(const [a,b] of cuts.sort((x,y)=>x[0]-y[0])){
+      const next = [];
+      for(const [s,e] of out){ if(b <= s || a >= e){ next.push([s,e]); continue; } if(a > s) next.push([s,a]); if(b < e) next.push([b,e]); }
+      out = next;
+    }
+    return out.filter(([s,e])=>e - s > .08);
+  }
+  function audioGain(clips, segs){
+    let sum = 0, cnt = 0, peak = 0;
+    for(const sg of segs){
+      const a = clips[sg.ci].audio; if(!a) continue;
+      const d = a.getChannelData(0), st = Math.round(sg.s*48000), en = Math.min(d.length, st + Math.round(sg.nF/FPS*48000));
+      for(let i=st; i<en; i+=4){ const v = d[i]; sum += v*v; cnt++; const av = v < 0 ? -v : v; if(av > peak) peak = av; }
+    }
+    if(!cnt || !peak) return 1;
+    const rms = Math.sqrt(sum/cnt);
+    return Math.max(.5, Math.min(4, .14/rms, .97/peak));
+  }
+  // Pro editor pass. Uses the AI when it is available, otherwise simple rules.
+  const FILLERS = /^(um+|umm+|uh+|uhm+|erm+|hmm+|mm+|ah+|eh+|é+h+|ã+h*|ahn+|hum+)[.,!?…]*$/i;
+  async function direct(request, plan, list, clips, key){
+    const res = await callKerf({mode:'direct', request, plan, words: list.slice(0, 2500).map((x, i) => [i, x.w.text, +x.w.start.toFixed(2)])});
+    const idOf = i => list[i] ? list[i].ci + ':' + list[i].wi : null;
+    const toSet = arr => new Set((Array.isArray(arr) ? arr : []).map(Number).filter(i=>Number.isInteger(i)).map(idOf).filter(Boolean));
+    let out;
+    if(res && (res.emphasis || res.zooms)){
+      out = {emph: toSet(res.emphasis), zooms: toSet(res.zooms), cut: toSet(res.cut), hook: typeof res.hook === 'string' ? res.hook.trim().slice(0, 60) : ''};
+    } else {
+      const emph = new Set(), zooms = new Set(), cut = new Set();
+      let lastEmph = -9, lastZoom = -9;
+      list.forEach((x, i) => {
+        const t = x.w.text.replace(/[^\p{L}\p{N}$%]/gu, '');
+        if(FILLERS.test(x.w.text.trim())){ cut.add(idOf(i)); return; }
+        const strong = /\d|\$|%/.test(t) || t.length >= 7;
+        if(strong && i - lastEmph >= 5){ emph.add(idOf(i)); lastEmph = i; if(x.w.start - lastZoom >= 3.5){ zooms.add(idOf(i)); lastZoom = x.w.start; } }
+      });
+      out = {emph, zooms, cut, hook: ''};
+    }
+    // only cut words when the timing is exact
+    for(const id of [...out.cut]){ const ci = +id.split(':')[0]; if(!clips[ci].exact?.[key]) out.cut.delete(id); }
+    return out;
   }
   const wordsKey = plan => plan.translate ? 'en-translate' : (plan.language || 'auto');
 
@@ -1604,15 +1789,17 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   }
 
   /* speech to text runs in a background worker so the page never freezes */
-  const ASR_LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js';
-  const ASR_MODEL = 'Xenova/whisper-base';
-  const WORKER_SRC = `
-    import { pipeline } from '${ASR_LIB}';
+  const ASR = {
+    quick: {lib:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js', model:'Xenova/whisper-base'},
+    pro: {lib:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js', model:'onnx-community/whisper-small_timestamped'}
+  };
+  const workerSrc = cfg => `
+    import { pipeline } from '${cfg.lib}';
     let asr = null;
     async function load(id){
       if(asr) return asr;
       const files = {};
-      asr = await pipeline('automatic-speech-recognition', '${ASR_MODEL}', { progress_callback: p => {
+      asr = await pipeline('automatic-speech-recognition', '${cfg.model}', { progress_callback: p => {
         if(p.status !== 'progress' || !p.total) return;
         files[p.file] = [p.loaded, p.total];
         const all = Object.values(files), l = all.reduce((a,b)=>a+b[0],0), t = all.reduce((a,b)=>a+b[1],0);
@@ -1629,48 +1816,65 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         self.postMessage({id, type:'done', out:{text: out.text, chunks: out.chunks}});
       }catch(err){ self.postMessage({id, type:'error', message: String(err && err.message || err)}); }
     };`;
-  let asrWorker = null, asrSeq = 0, mainASR = null;
+  const asrW = {quick:null, pro:null}, asrMain = {quick:null};
+  let asrSeq = 0;
   const asrJobs = new Map();
-  function worker(){
-    if(asrWorker) return asrWorker;
-    asrWorker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], {type:'text/javascript'})), {type:'module'});
-    asrWorker.onmessage = e => {
+  function worker(kind){
+    if(asrW[kind]) return asrW[kind];
+    const w = new Worker(URL.createObjectURL(new Blob([workerSrc(ASR[kind])], {type:'text/javascript'})), {type:'module'});
+    w.onmessage = e => {
       const j = asrJobs.get(e.data.id); if(!j) return;
       if(e.data.type === 'progress') j.progress?.(e.data.value);
       else { asrJobs.delete(e.data.id); e.data.type === 'done' ? j.ok(e.data.out) : j.bad(new Error(e.data.message)); }
     };
-    asrWorker.onerror = () => { asrJobs.forEach(j=>j.bad(new Error('worker'))); asrJobs.clear(); asrWorker = 'broken'; };
-    return asrWorker;
+    w.onerror = () => { for(const [id, j] of asrJobs) if(j.kind === kind){ j.bad(new Error('worker')); asrJobs.delete(id); } asrW[kind] = 'broken'; };
+    return (asrW[kind] = w);
   }
-  function workerCall(msg, progress, transfer){
+  function workerCall(kind, msg, progress, transfer){
     return new Promise((ok, bad) => {
-      const w = worker(); if(w === 'broken') return bad(new Error('worker'));
-      const id = ++asrSeq; asrJobs.set(id, {ok, bad, progress});
+      const w = worker(kind); if(w === 'broken') return bad(new Error('worker'));
+      const id = ++asrSeq; asrJobs.set(id, {ok, bad, progress, kind});
       w.postMessage({id, ...msg}, transfer || []);
     });
   }
-  async function warmASR(progress){
-    if(asrWorker !== 'broken'){
-      try{ await workerCall({warm:true}, progress); return true; }catch(e){ console.warn('caption worker failed, using the page', e); asrWorker = 'broken'; }
+  async function warmASR(kind, progress){
+    if(asrW[kind] !== 'broken'){
+      try{ await workerCall(kind, {warm:true}, progress); return true; }
+      catch(e){ console.warn('caption worker failed', kind, e); asrW[kind] = 'broken'; if(kind === 'pro') throw e; }
     }
-    // fallback: run on the page itself (slower and the page can stutter)
+    // fallback: run on the page itself (slower, the page can stutter)
     try{
-      mainASR ||= import(ASR_LIB).then(T => T.pipeline('automatic-speech-recognition', ASR_MODEL)).catch(e=>{ mainASR = null; throw e; });
-      await mainASR; return false;
+      asrMain.quick ||= import(ASR.quick.lib).then(T => T.pipeline('automatic-speech-recognition', ASR.quick.model)).catch(e=>{ asrMain.quick = null; throw e; });
+      await asrMain.quick; return false;
     }catch(e){ throw {msg:'The caption engine could not load. Check your internet connection and try again.'}; }
   }
-  async function transcribe(pcm, plan, tick){
+  async function transcribe(kind, pcm, plan, tick){
     const LANG = {en:'english', pt:'portuguese', es:'spanish', fr:'french', de:'german', it:'italian'};
-    const opts = {return_timestamps:true, chunk_length_s:30, stride_length_s:5};
+    const word = kind === 'pro';
+    const opts = {return_timestamps: word ? 'word' : true, chunk_length_s:30, stride_length_s:5};
     if(plan.translate){ opts.task = 'translate'; }
     else if(LANG[plan.language]){ opts.language = LANG[plan.language]; opts.task = 'transcribe'; }
     const total = pcm.length/16000;
     const t0 = Date.now(), timer = setInterval(()=>tick(Math.round((Date.now()-t0)/1000) + 's'), 1000);
     let out;
     try{
-      if(asrWorker !== 'broken'){ const copy = pcm.slice(); out = await workerCall({pcm: copy, opts}, null, [copy.buffer]); }
-      else { await new Promise(r=>setTimeout(r, 50)); out = await (await mainASR)(pcm, opts); }
+      if(asrW[kind] && asrW[kind] !== 'broken'){ const copy = pcm.slice(); out = await workerCall(kind, {pcm: copy, opts}, null, [copy.buffer]); }
+      else if(kind === 'quick'){ await new Promise(r=>setTimeout(r, 50)); out = await (await asrMain.quick)(pcm, opts); }
+      else throw new Error('pro engine not loaded');
     } finally { clearInterval(timer); }
+    if(word){
+      // one chunk per word with its own timing
+      const ws = (out.chunks || []).map(c => ({text: String(c.text || '').trim(), start: Number(c.timestamp?.[0]), end: Number(c.timestamp?.[1])})).filter(w => w.text);
+      if(!ws.length && String(out.text || '').trim()) throw new Error('no word timings');
+      for(let i=0;i<ws.length;i++){
+        if(!Number.isFinite(ws[i].start)) ws[i].start = i ? ws[i-1].end : 0;
+        if(!Number.isFinite(ws[i].end) || ws[i].end <= ws[i].start) ws[i].end = Math.min(total, (Number.isFinite(ws[i+1]?.start) ? ws[i+1].start : ws[i].start + .4));
+        ws[i].end = Math.min(ws[i].end, ws[i].start + 1.2); // a long pause is not part of the word
+      }
+      const bad = ws.filter((w,i) => i && w.start + .05 < ws[i-1].start).length;
+      if(bad > ws.length*.2) throw new Error('word timings out of order');
+      return ws;
+    }
     const chunks = (out.chunks && out.chunks.length) ? out.chunks : [{text: out.text || '', timestamp:[0, total]}];
     const words = [];
     for(const c of chunks){
@@ -1684,7 +1888,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     return words;
   }
 
-  function findSpeech(pcm, dur){
+  function findSpeech(pcm, dur, tight){
     const win = 320, n = Math.floor(pcm.length/win);
     if(n < 10) return [[0, dur]];
     const rms = new Float32Array(n);
@@ -1695,7 +1899,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const segs = []; let st = -1;
     for(let i=0;i<n;i++){ const sp = rms[i] > thr; if(sp && st < 0) st = i; if(!sp && st >= 0){ segs.push([st, i]); st = -1; } }
     if(st >= 0) segs.push([st, n]);
-    const pad = .12, gap = .45, out = [];
+    const pad = tight ? .08 : .12, gap = tight ? .3 : .45, out = [];
     for(const [a,b] of segs){
       const s = Math.max(0, a*.02 - pad), e = Math.min(dur, b*.02 + pad);
       if(out.length && s - out[out.length-1][1] < gap) out[out.length-1][1] = e; else out.push([s, e]);
@@ -1741,6 +1945,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const base = Math.min(W, H), wide = W > H;
     const isOn = i => t >= cap.words[i].start && t < (cap.words[i+1]?.start ?? cap.end);
     const said = i => t >= cap.words[i].start - .02;
+    const hot = i => !!cap.words[i].emph;
     const posY = {top: .2, middle: .5, bottom: wide ? .8 : .74}[plan.caption_position] ?? .74;
     const cy = H*posY;
     x.save(); x.textBaseline = 'middle'; x.textAlign = 'left';
@@ -1752,7 +1957,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       x.lineJoin = 'round'; x.lineWidth = fs*.2; x.strokeStyle = '#000';
       for(const line of lines){
         let lx = (W - line.width)/2;
-        for(const it of line.items){ x.strokeText(it.text, lx, y); x.fillStyle = isOn(it.i) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
+        for(const it of line.items){ x.strokeText(it.text, lx, y); x.fillStyle = isOn(it.i) || hot(it.i) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
         y += fs*1.16;
       }
     } else if(style === 'pop'){
@@ -1764,7 +1969,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       x.lineJoin = 'round'; x.lineWidth = fs*.22; x.strokeStyle = '#000';
       x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = fs*.3; x.shadowOffsetY = fs*.06;
       x.strokeText(word, -tw/2, 0); x.shadowColor = 'transparent';
-      x.fillStyle = (/\d/.test(word) || word.replace(/[^A-ZÀ-Ý]/g,'').length >= 6) ? color : '#FFFFFF';
+      x.fillStyle = (w.emph || (!plan._pro && (/\d/.test(word) || word.replace(/[^A-ZÀ-Ý]/g,'').length >= 6))) ? color : '#FFFFFF';
       x.fillText(word, -tw/2, 0);
     } else if(style === 'highlight'){
       const fs = Math.round(base*.066);
@@ -1777,7 +1982,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
           if(isOn(it.i)){ const px = fs*.22; roundRectPath(x, lx - px, y - fs*.66, it.w + px*2, fs*1.32, fs*.28); x.fillStyle = color; x.fill(); }
           x.lineJoin = 'round'; x.lineWidth = fs*.14; x.strokeStyle = 'rgba(0,0,0,.85)';
           if(!isOn(it.i)) x.strokeText(it.text, lx, y);
-          x.fillStyle = isOn(it.i) ? (isLight(color) ? '#111' : '#FFF') : '#FFFFFF';
+          x.fillStyle = isOn(it.i) ? (isLight(color) ? '#111' : '#FFF') : hot(it.i) ? color : '#FFFFFF';
           x.fillText(it.text, lx, y); lx += it.w + it.space;
         }
         y += lh;
@@ -1790,7 +1995,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = fs*.35;
       for(const line of lines){
         let lx = (W - line.width)/2;
-        for(const it of line.items){ const a = Math.min(1, Math.max(0, (t - cap.words[it.i].start + .05)/.18)); x.globalAlpha = .25 + .75*a; x.fillStyle = '#FFF'; x.fillText(it.text, lx, y + (1 - a)*fs*.12); lx += it.w + it.space; }
+        for(const it of line.items){ const a = Math.min(1, Math.max(0, (t - cap.words[it.i].start + .05)/.18)); x.globalAlpha = .25 + .75*a; x.fillStyle = hot(it.i) ? color : '#FFF'; x.fillText(it.text, lx, y + (1 - a)*fs*.12); lx += it.w + it.space; }
         y += lh;
       }
       x.globalAlpha = 1;
@@ -1816,7 +2021,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       let y = by + padY + fs/2;
       for(const line of lines){
         let lx = (W - line.width)/2;
-        for(const it of line.items){ x.fillStyle = said(it.i) ? '#FFFFFF' : 'rgba(255,255,255,0.45)'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
+        for(const it of line.items){ x.fillStyle = !said(it.i) ? 'rgba(255,255,255,0.45)' : hot(it.i) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
         y += lh;
       }
     } else {
@@ -1828,7 +2033,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       x.shadowColor = 'rgba(0,0,0,0.75)'; x.shadowBlur = fs*.35; x.fillStyle = '#FFFFFF';
       for(const line of lines){
         let lx = (W - line.width)/2;
-        for(const it of line.items){ x.fillText(it.text, lx, y); lx += it.w + it.space; }
+        for(const it of line.items){ x.fillStyle = hot(it.i) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; }
         y += fs*1.2;
       }
     }
@@ -1843,15 +2048,20 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     vivid:{filter:'saturate(1.38) contrast(1.08)'},
     cinematic:{filter:'contrast(1.14) saturate(0.86) brightness(0.97)', tint:'rgba(0,110,130,0.18)', vignette:.5}
   };
-  function outSize(plan, c){
+  function outSize(plan, c, pro){
     const R = {'9:16':[1080,1920], '1:1':[1080,1080], '16:9':[1920,1080], '4:5':[1080,1350]};
     if(R[plan.format]) return R[plan.format];
-    const k = Math.min(1, 1920/Math.max(c.w, c.h));
+    const k = pro ? Math.min(1920/Math.max(c.w, c.h), Math.max(1, 1080/Math.min(c.w, c.h))) : Math.min(1, 1920/Math.max(c.w, c.h));
     return [Math.round(c.w*k/2)*2, Math.round(c.h*k/2)*2];
   }
-  function drawFrame(x, W, H, src, sw, sh, t, caps, plan){
+  const easeIO = p => p < .5 ? 2*p*p : 1 - Math.pow(-2*p + 2, 2)/2;
+  function drawFrame(x, W, H, src, sw, sh, t, caps, plan, fx){
     let z = 1;
-    if(plan.zooms){
+    if(fx && fx.pro){
+      for(const zm of fx.zoomAt){
+        if(t >= zm.t - .05 && t < zm.e + .35){ const a = (t - zm.t + .05)/.3, b = (zm.e + .35 - t)/.35; z = 1 + .12*easeIO(Math.max(0, Math.min(1, a, b))); break; }
+      }
+    } else if(plan.zooms){
       const ci = caps.length ? caps.findIndex(c=>t >= c.start && t < c.end) : Math.floor(t/4);
       const startT = caps.length ? caps[ci]?.start : Math.floor(t/4)*4;
       const every = plan.captions === 'pop' ? 6 : 3;
@@ -1865,14 +2075,32 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     x.filter = 'none';
     if(look?.tint){ x.save(); x.globalCompositeOperation = 'soft-light'; x.fillStyle = look.tint; x.fillRect(0, 0, W, H); x.restore(); }
     if(look?.vignette){ const g = x.createRadialGradient(W/2, H/2, Math.min(W,H)*.35, W/2, H/2, Math.hypot(W,H)*.55); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,`rgba(0,0,0,${look.vignette})`); x.fillStyle = g; x.fillRect(0, 0, W, H); }
-    if(caps.length){ const cap = caps.find(c=>t >= c.start - .02 && t < c.end); if(cap) drawCaption(x, W, H, cap, t, plan); }
+    if(fx && fx.hook && t < fx.hook.until) drawHook(x, W, H, fx.hook, t, plan);
+    if(caps.length){ const cap = caps.find(c=>t >= c.start - .02 && t < c.end); if(cap) drawCaption(x, W, H, cap, t, fx && fx.pro ? {...plan, _pro:true} : plan); }
+  }
+  function drawHook(x, W, H, hook, t, plan){
+    const a = Math.max(0, Math.min(1, t/.25, (hook.until - t)/.3));
+    if(a <= 0) return;
+    const fs = Math.round(Math.min(W, H)*.074), color = plan.caption_color || '#FFD43B';
+    x.save(); x.globalAlpha = a; x.textBaseline = 'middle'; x.textAlign = 'left';
+    x.font = `900 ${fs}px Montserrat, "Arial Black", Arial, sans-serif`;
+    const lines = layoutWords(x, hook.text.toUpperCase().split(/\s+/).filter(Boolean), W*.8);
+    const lh = fs*1.14, bw = Math.max(...lines.map(l=>l.width)) + fs*1.2, bh = lines.length*lh + fs*.7;
+    const cy = H*(plan.caption_position === 'top' ? .5 : .2) + (1 - a)*fs*.5;
+    roundRectPath(x, (W - bw)/2, cy - bh/2, bw, bh, fs*.4); x.fillStyle = 'rgba(8,10,16,0.62)'; x.fill();
+    x.lineWidth = Math.max(1, fs*.04); x.strokeStyle = 'rgba(255,255,255,0.22)'; x.stroke();
+    lines.forEach((line, li) => {
+      let lx = (W - line.width)/2; const y = cy - (lines.length - 1)*lh/2 + li*lh;
+      line.items.forEach((it, k) => { x.fillStyle = (li === lines.length - 1 && k === line.items.length - 1) ? color : '#FFFFFF'; x.fillText(it.text, lx, y); lx += it.w + it.space; });
+    });
+    x.restore();
   }
 
   /* fast render: decodes and encodes frame by frame with the browser's video engine (faster than real time) */
   const MB_URL = 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.4/dist/bundles/mediabunny.min.mjs';
   let mbPromise = null;
   const getMB = () => (mbPromise ||= import(MB_URL).catch(e=>{ mbPromise = null; throw e; }));
-  function segmentAudio(clip, s, len){
+  function segmentAudio(clip, s, len, gain = 1){
     const sr = 48000, n = Math.max(1, Math.round(len*sr));
     const out = new AudioBuffer({length:n, numberOfChannels:2, sampleRate:sr});
     if(clip.audio){
@@ -1880,12 +2108,13 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       for(let ch=0; ch<2; ch++){
         const src = clip.audio.getChannelData(Math.min(ch, clip.audio.numberOfChannels - 1)), dst = out.getChannelData(ch);
         dst.set(src.subarray(Math.min(src.length, st), Math.min(src.length, st + n)));
+        if(gain !== 1) for(let i=0;i<n;i++) dst[i] *= gain;
         for(let i=0;i<fade;i++){ const f = i/fade; dst[i] *= f; dst[n-1-i] *= f; }
       }
     }
     return out;
   }
-  async function renderFast(clips, segs, caps, plan, W, H, onProgress){
+  async function renderFast(clips, segs, caps, plan, W, H, onProgress, fx){
     if(typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') throw new Error('no WebCodecs');
     const MB = await getMB();
     const vcodec = await MB.getFirstEncodableVideoCodec(['avc','vp9','av1','vp8'], {width:W, height:H});
@@ -1906,7 +2135,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     const output = new MB.Output({format: mp4 ? new MB.Mp4OutputFormat({fastStart:'in-memory'}) : new MB.WebMOutputFormat(), target: new MB.BufferTarget()});
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
-    const vsrc = new MB.CanvasSource(c, {codec: vcodec, quality: MB.QUALITY_HIGH, keyFrameInterval: 2});
+    const vsrc = new MB.CanvasSource(c, {codec: vcodec, quality: fx && fx.pro ? MB.QUALITY_VERY_HIGH : MB.QUALITY_HIGH, keyFrameInterval: 2});
     output.addVideoTrack(vsrc, {frameRate: FPS});
     let asrc = null;
     if(acodec){ asrc = new MB.AudioBufferSource({codec: acodec, quality: MB.QUALITY_HIGH}); output.addAudioTrack(asrc); }
@@ -1915,13 +2144,13 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       const total = segs.reduce((a,s)=>a + s.nF, 0); let doneF = 0, lastYield = performance.now();
       for(const sg of segs){
         const {sink, w, h} = sinks[sg.ci];
-        if(asrc) await asrc.add(segmentAudio(clips[sg.ci], sg.s, sg.nF/FPS));
+        if(asrc) await asrc.add(segmentAudio(clips[sg.ci], sg.s, sg.nF/FPS, fx ? fx.gain : 1));
         const ts = Array.from({length: sg.nF}, (_,i) => sg.s + i/FPS);
         let last = null, i = 0;
         for await (const wc of sink.canvasesAtTimestamps(ts)){
           if(wc) last = wc;
           const t = sg.off + i/FPS;
-          if(last) drawFrame(x, W, H, last.canvas, w, h, t, caps, plan); else { x.fillStyle = '#000'; x.fillRect(0, 0, W, H); }
+          if(last) drawFrame(x, W, H, last.canvas, w, h, t, caps, plan, fx); else { x.fillStyle = '#000'; x.fillRect(0, 0, W, H); }
           await vsrc.add(t, 1/FPS);
           i++; doneF++;
           if(performance.now() - lastYield > 120){ onProgress(doneF/total); await new Promise(r=>setTimeout(r, 0)); lastYield = performance.now(); }
@@ -1936,18 +2165,19 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
   }
 
   /* backup render: plays the clips and records the canvas in real time */
-  async function renderRealtime(clips, segs, caps, plan, W, H, onProgress){
+  async function renderRealtime(clips, segs, caps, plan, W, H, onProgress, fx){
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
     const AC = window.AudioContext || window.webkitAudioContext;
-    const ac = new AC(), dest = ac.createMediaStreamDestination();
+    const ac = new AC(), dest = ac.createMediaStreamDestination(), amp = ac.createGain();
+    amp.gain.value = fx ? fx.gain : 1; amp.connect(dest);
     const vids = {};
     for(const ci of new Set(segs.map(s=>s.ci))){
       const v = document.createElement('video'); v.src = clips[ci].url; v.playsInline = true; v.preload = 'auto';
       v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
       document.body.appendChild(v);
       await new Promise(r=>{ if(v.readyState >= 1) r(); else v.onloadedmetadata = r; });
-      try{ ac.createMediaElementSource(v).connect(dest); }catch(e){}
+      try{ ac.createMediaElementSource(v).connect(amp); }catch(e){}
       vids[ci] = v;
     }
     const stream = new MediaStream([...c.captureStream(FPS).getVideoTracks(), ...dest.stream.getAudioTracks()]);
@@ -1966,13 +2196,13 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         const v = vids[sg.ci], s = sg.s, e = sg.s + sg.nF/FPS;
         const nextFrame = f => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(()=>f()) : requestAnimationFrame(()=>f()));
         if(Math.abs(v.currentTime - s) > .01){ await new Promise(r=>{ v.onseeked = r; v.currentTime = s; }); }
-        drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off, caps, plan);
+        drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off, caps, plan, fx);
         if(!started){ rec.start(1000); started = true; } else rec.resume();
         try{ await v.play(); }catch(err){ v.muted = true; await v.play(); }
         await new Promise(resolve=>{
           const tick = () => {
             const t = v.currentTime;
-            drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off + Math.max(0, t - s), caps, plan);
+            drawFrame(x, W, H, v, v.videoWidth, v.videoHeight, sg.off + Math.max(0, t - s), caps, plan, fx);
             onProgress(Math.min(1, (doneT + Math.max(0, t - s))/total));
             if(t >= e - .03 || v.ended || v.paused){ resolve(); return; }
             nextFrame(tick);
@@ -2000,15 +2230,22 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         bw: e.bw === true, crop: RATIOS[e.crop] ? e.crop : 'original'
       };
       const out = await applyEdits(batch[i].file, s);
-      const key = 'p' + Date.now() + i;
+      const key = newId('ph');
       DL[key] = {blob: out.blob, name: `kerf-photo-${i+1}.jpg`};
+      store.put(key, out.blob); store.put(key + '-b', out.beforeBlob);
       const bits = [];
       if(s.crop !== 'original') bits.push(s.crop);
       if(s.bw) bits.push('B&W');
       if(s.warmth > .05) bits.push('warmer'); else if(s.warmth < -.05) bits.push('cooler');
       if(s.vignette > .05) bits.push('vignette');
-      photos.push({before: out.before, after: out.after, w: out.w, h: out.h, key, note: bits.join(' · ') || 'light and color'});
+      photos.push({before: out.before, after: out.after, w: out.w, h: out.h, key, note: bits.join(' · ') || 'light and color', _before: out.beforeBlob});
       ai.photos = photos.slice(); refreshSoon(chat);
+    }
+    ai.saveAtts = [];
+    for(const p of photos){
+      const [path, bpath] = await Promise.all([cloudSave(p.key, DL[p.key].blob, 'jpg'), cloudSave(p.key + '-b', p._before, 'jpg')]);
+      ai.saveAtts.push({kind:'photo', id:p.key, path, bpath, w:p.w, h:p.h, note:p.note});
+      delete p._before;
     }
     if(images.length > batch.length) ai.error = `I edited the first ${batch.length} photos. Send the rest in your next message.`;
   }
@@ -2052,12 +2289,17 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     }
     x.putImageData(id, 0, 0);
     const [ab, bb] = await Promise.all([toBlob(c, .92), toBlob(before, .85)]);
-    return {blob: ab, after: URL.createObjectURL(ab), before: URL.createObjectURL(bb), w: W, h: H};
+    return {blob: ab, beforeBlob: bb, after: URL.createObjectURL(ab), before: URL.createObjectURL(bb), w: W, h: H};
   }
   const DL = {};
   msgsEl.addEventListener('click', async e=>{
     const b = e.target.closest('[data-dl]'); if(!b) return;
     const item = DL[b.dataset.dl]; if(!item) return;
+    if(!item.blob && item.path){
+      toast('Getting your file...');
+      try{ const u = (await cloudUrls([item.path]))[item.path]; if(!u) throw 0; item.blob = await (await fetch(u)).blob(); }
+      catch(err){ toast('This file could not be downloaded right now.'); return; }
+    }
     const downloads = await getDownloads();
     if(downloads){
       try{ await downloads.save({filename:item.name, data:item.blob}); toast('Saved'); }

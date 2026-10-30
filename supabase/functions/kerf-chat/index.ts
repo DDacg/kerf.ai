@@ -24,9 +24,10 @@ VIDEO
 - Color look: none, warm, cool, bw, vivid, cinematic.
 - Captions translated to English ("translate": true).
 PHOTO: brightness, contrast, saturation, warmth, vignette, sharpness, black and white, crop to 4:5, 1:1, 9:16 or 16:9.
-Coming soon (say so kindly if asked, and do what you can now): music, sound effects, b-roll, motion graphics, face tracking, removing filler words, trimming exact times.
+Coming soon (say so kindly if asked, and do what you can now): music, sound effects, b-roll, motion graphics, face tracking, trimming exact times. Filler words are removed automatically in Pro mode.
 
 Each user message may end with a bracket note saying which files are attached, or (when no files are attached) the settings of the previous video edit in this chat.
+The user may pick Quick or Pro mode; in Pro mode a second editor pass adds a hook title, highlighted words, smart zooms and filler-word cuts automatically, so you only set the main settings.
 Follow-ups change the previous video: start from the previous settings and change ONLY what the user asks. If the user asks something without wanting a new render (a question, thanks), set "video" to null.
 If the user asks for something vague like "edit this" on a new video, choose a strong default: glassy or bold captions, cut pauses, zooms.
 Never pick a caption style the user did not ask for when they named one. Respect "no captions".
@@ -37,6 +38,36 @@ Reply with ONLY one JSON object, no other text:
  "photo":{"edits":[{"brightness":1.0,"contrast":1.0,"saturation":1.0,"warmth":0,"vignette":0,"sharpen":0,"bw":false,"crop":"original"}]} or null}
 Include "video" when a video is attached or when the user wants a change to the previous video. Include "photo" only when photos are attached (one edits entry per photo, in order).
 Ranges: brightness 0.6-1.5, contrast 0.6-1.6, saturation 0-1.8, warmth -1..1, vignette 0..1, sharpen 0..1. Keep photos natural unless asked for something bold.`;
+
+const DIRECT = `You are the lead editor at Kerf AI, planning a short-form video edit from its transcript.
+You get the user's request, the current edit settings, and the transcript as [index, word, start_seconds].
+Return ONLY one JSON object:
+{"hook":"a punchy title for the first 2-3 seconds, max 6 words, in the video's language, or \"\" if a title would not fit or the user does not want text",
+ "emphasis":[indices of the key words to color: numbers, money, results, the one word that carries each sentence; about 1 per sentence, never more than 15% of words],
+ "zooms":[indices where a punch-in zoom should land, on the strongest moments, at least 3 seconds apart; none if the user does not want zooms],
+ "cut":[indices of filler words and stumbles to remove: um, uh, er, "like" or "tipo" or "né" used as filler, repeated words, false starts. Never cut a word that carries meaning],
+ "reply":"one short sentence in the user's language about the creative choices"}
+Think like a top TikTok/Reels editor: the hook should make people stay, highlights should make the message easy to follow at a glance.`;
+
+async function claude(key: string, model: string, system: string, messages: unknown[], max_tokens: number) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens, system, messages }),
+  });
+  if (!r.ok) {
+    console.error("anthropic error", r.status, (await r.text()).slice(0, 500));
+    return null;
+  }
+  const out = await r.json();
+  const text: string = (out.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
+  try {
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    return JSON.parse(text.slice(a, b + 1)) as Record<string, unknown>;
+  } catch {
+    return { reply: text.trim() || "Done." } as Record<string, unknown>;
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -56,8 +87,24 @@ Deno.serve(async (req) => {
   const { data: profile } = await db.from("profiles").select("is_admin, credits").eq("id", u.user.id).maybeSingle();
   if (!profile || (!profile.is_admin && profile.credits <= 0)) return json({ error: "no_credits" }, 402);
 
-  let body: { messages?: { role: string; content: string }[]; images?: { media_type: string; data: string }[] };
+  let body: {
+    messages?: { role: string; content: string }[]; images?: { media_type: string; data: string }[];
+    mode?: string; request?: string; plan?: unknown; words?: unknown[];
+  };
   try { body = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
+  const pro = body.mode === "pro" || body.mode === "direct";
+  const model = pro ? (Deno.env.get("KERF_PRO_MODEL") ?? "claude-opus-5-5") : (Deno.env.get("KERF_MODEL") ?? "claude-sonnet-5-5");
+
+  // Pro editor pass over the transcript
+  if (body.mode === "direct") {
+    const words = (body.words ?? []).filter((w) => Array.isArray(w) && w.length >= 3).slice(0, 2500);
+    if (!words.length) return json({ error: "no_words" }, 400);
+    const text = `User request: ${String(body.request ?? "").slice(0, 2000)}\nEdit settings: ${JSON.stringify(body.plan ?? {}).slice(0, 1500)}\nTranscript words as [index, word, start_seconds]:\n${JSON.stringify(words)}`;
+    const plan = await claude(key, model, DIRECT, [{ role: "user", content: text }], 2000);
+    if (!plan) return json({ error: "ai_failed" }, 502);
+    const ints = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < words.length) : []);
+    return json({ hook: String(plan.hook ?? ""), emphasis: ints(plan.emphasis), zooms: ints(plan.zooms), cut: ints(plan.cut), reply: String(plan.reply ?? "") });
+  }
   const turns = (body.messages ?? [])
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .slice(-12)
@@ -78,23 +125,7 @@ Deno.serve(async (req) => {
     },
   ];
 
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: Deno.env.get("KERF_MODEL") ?? "claude-sonnet-5-5", max_tokens: 700, system: SYSTEM, messages }),
-  });
-  if (!r.ok) {
-    console.error("anthropic error", r.status, (await r.text()).slice(0, 500));
-    return json({ error: "ai_failed" }, 502);
-  }
-  const out = await r.json();
-  const text: string = (out.content ?? []).filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join("");
-  let plan: Record<string, unknown> = {};
-  try {
-    const a = text.indexOf("{"), b = text.lastIndexOf("}");
-    plan = JSON.parse(text.slice(a, b + 1));
-  } catch {
-    plan = { reply: text.trim() || "Done." };
-  }
+  const plan = await claude(key, model, SYSTEM, messages, pro ? 1200 : 700);
+  if (!plan) return json({ error: "ai_failed" }, 502);
   return json({ reply: String(plan.reply ?? ""), video: plan.video ?? null, photo: plan.photo ?? null });
 });
