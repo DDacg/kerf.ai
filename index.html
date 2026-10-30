@@ -247,6 +247,8 @@ nav.links .btn{padding:11px 18px;font-size:14px}
 .credits{display:flex;align-items:baseline;gap:10px;padding:14px 16px;border-radius:16px;background:rgba(0,0,0,.25);border:1px solid var(--stroke)}
 .credits b{font-size:26px;font-weight:600;letter-spacing:-.03em}
 .credits span{color:var(--muted);font-size:14px}
+.credits{position:relative}
+.credits .bonus{position:absolute;top:-10px;right:12px;font:600 11px var(--f-mono);font-style:normal;color:var(--accent-ink);background:var(--accent-2);border-radius:999px;padding:3px 9px;white-space:nowrap;box-shadow:0 4px 14px rgba(48,227,200,.3)}
 .plan ul{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:15px;color:var(--muted)}
 .plan li{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start}
 .plan li svg{width:16px;height:16px;margin-top:3px;color:var(--accent-2)}
@@ -631,14 +633,14 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     </div>
     <div class="bill"><div class="tabs" role="tablist" aria-label="Billing period">
       <button type="button" role="tab" id="bill-m" aria-selected="true">Monthly</button>
-      <button type="button" role="tab" id="bill-y" aria-selected="false">Yearly · 2 months free</button>
+      <button type="button" role="tab" id="bill-y" aria-selected="false">Yearly · 2 months free + bonus credits</button>
     </div></div>
     <div class="plans" data-stagger>
       <article class="plan glass" data-reveal>
         <div class="kind"><h3>Starter</h3></div>
         <div class="price" data-m="10" data-y="8">$10<small>/ month</small></div>
         <div class="billed" data-y="Billed $96 a year"></div>
-        <div class="credits"><b>200</b><span>credits a month · about 20 Shorts</span></div>
+        <div class="credits" data-m="200" data-y="300" data-bonus="100"><b>200</b><span>credits a month · about 20 Shorts</span><em class="bonus" hidden></em></div>
         <ul>
           <li><svg><use href="#ck"/></svg>Videos up to 5 minutes</li>
           <li><svg><use href="#ck"/></svg>Photo editing</li>
@@ -651,7 +653,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         <div class="kind"><h3>Creator</h3><span class="badge">Most popular</span></div>
         <div class="price" data-m="20" data-y="16">$20<small>/ month</small></div>
         <div class="billed" data-y="Billed $192 a year"></div>
-        <div class="credits"><b>500</b><span>credits a month · about 50 Shorts</span></div>
+        <div class="credits" data-m="500" data-y="800" data-bonus="300"><b>500</b><span>credits a month · about 50 Shorts</span><em class="bonus" hidden></em></div>
         <ul>
           <li><svg><use href="#ck"/></svg>Everything in Starter</li>
           <li><svg><use href="#ck"/></svg>Videos up to 15 minutes</li>
@@ -665,7 +667,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
         <div class="kind"><h3>Studio</h3></div>
         <div class="price" data-m="49" data-y="41">$49<small>/ month</small></div>
         <div class="billed" data-y="Billed $490 a year"></div>
-        <div class="credits"><b>1,500</b><span>credits a month · about 150 Shorts</span></div>
+        <div class="credits" data-m="1500" data-y="2000" data-bonus="500"><b>1,500</b><span>credits a month · about 150 Shorts</span><em class="bonus" hidden></em></div>
         <ul>
           <li><svg><use href="#ck"/></svg>Everything in Creator</li>
           <li><svg><use href="#ck"/></svg>Videos up to 60 minutes</li>
@@ -712,6 +714,7 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
       <details class="glass" data-reveal><summary>What can I upload?</summary><p>MP4 and MOV videos up to 2 GB, and JPG, PNG or HEIC photos. Phone footage, camera footage, screen recordings and AI-generated clips all work.</p></details>
       <details class="glass" data-reveal><summary>What if I don't like the result?</summary><p>Reply in the chat with what to change, like "make the captions red" or "remove the zooms". A round of changes costs 5 credits (10 in Pro mode), and you don't need to upload again.</p></details>
       <details class="glass" data-reveal><summary>Do unused credits carry over?</summary><p>On Creator and Studio, unused monthly credits roll over for one month. Credits you buy as top-ups stay while you have an active plan.</p></details>
+      <details class="glass" data-reveal><summary>What do yearly plans include?</summary><p>Two months free, plus bonus credits every month: Starter gets 300 a month instead of 200, Creator 800 instead of 500, and Studio 2,000 instead of 1,500. All 12 months of credits are added the day you subscribe.</p></details>
       <details class="glass" data-reveal><summary>Who owns the videos?</summary><p>You do. Everything you upload and everything Kerf AI makes for you is yours to post, sell or use in ads.</p></details>
       <details class="glass" data-reveal><summary>Can I try it before paying?</summary><p>You can open the editor and look around for free. Sending requests needs a plan, so every edit gets the processing power it needs.</p></details>
     </div>
@@ -1032,6 +1035,13 @@ footer{position:relative;z-index:2;max-width:1160px;margin:0 auto;padding-block:
     $('bill-m').setAttribute('aria-selected', !y); $('bill-y').setAttribute('aria-selected', y);
     document.querySelectorAll('.price[data-m]').forEach(p=>{ p.firstChild.nodeValue = '$' + (y ? p.dataset.y : p.dataset.m); });
     document.querySelectorAll('.billed').forEach(b=>{ b.textContent = y ? b.dataset.y : ''; });
+    // yearly plans get bonus credits every month
+    document.querySelectorAll('.credits[data-m]').forEach(c=>{
+      const n = +(y ? c.dataset.y : c.dataset.m);
+      c.querySelector('b').textContent = n.toLocaleString('en-US');
+      c.querySelector('span').textContent = `credits a month · about ${Math.floor(n/10).toLocaleString('en-US')} Shorts`;
+      const e = c.querySelector('.bonus'); e.hidden = !y; e.textContent = `+${c.dataset.bonus} bonus`;
+    });
   }
   $('bill-m').addEventListener('click', ()=>setBill(false));
   $('bill-y').addEventListener('click', ()=>setBill(true));

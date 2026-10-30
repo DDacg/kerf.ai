@@ -11,11 +11,11 @@ const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 // What each checkout buys, keyed by the price before tax and discounts (in cents).
 const PLANS: Record<number, { plan: string; interval: "month" | "year"; credits: number }> = {
   1000: { plan: "starter", interval: "month", credits: 200 },
-  9600: { plan: "starter", interval: "year", credits: 2400 },
+  9600: { plan: "starter", interval: "year", credits: 3600 },
   2000: { plan: "creator", interval: "month", credits: 500 },
-  19200: { plan: "creator", interval: "year", credits: 6000 },
+  19200: { plan: "creator", interval: "year", credits: 9600 },
   4900: { plan: "studio", interval: "month", credits: 1500 },
-  49000: { plan: "studio", interval: "year", credits: 18000 },
+  49000: { plan: "studio", interval: "year", credits: 24000 },
 };
 const PACKS: Record<number, number> = { 600: 100, 1500: 300, 4500: 1000 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
